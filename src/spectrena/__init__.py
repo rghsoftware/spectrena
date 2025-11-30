@@ -33,7 +33,7 @@ import shutil
 import shlex
 import json
 from pathlib import Path
-from typing import Any, Callable, TypedDict, Optional
+from typing import Any, Callable, TypedDict
 
 import typer
 import httpx
@@ -52,13 +52,6 @@ import readchar
 import ssl
 import truststore
 from datetime import datetime, timezone
-
-from spectrena.new import new as new_spec
-from spectrena.plan import plan_init
-from spectrena.doctor import doctor as doctor_cmd
-from spectrena.context import update_context
-from spectrena.discover import add_discover_command
-from spectrena.commands import add_config_command
 
 ssl_context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 cl = httpx.Client(verify=ssl_context)
@@ -517,10 +510,6 @@ app = typer.Typer(
     invoke_without_command=True,
     cls=BannerGroup,
 )
-
-# Add discover and config commands
-add_discover_command(app)
-add_config_command(app)
 
 
 def show_banner():
@@ -1919,8 +1908,48 @@ def init(
 
 @app.command()
 def check():
-    """Check that all required tools are installed."""
+    """Check that all required tools are installed and display version info."""
+    import platform
+    import importlib.metadata
+
     show_banner()
+
+    # Get CLI version from package metadata
+    cli_version = "unknown"
+    try:
+        cli_version = importlib.metadata.version("spectrena")
+    except Exception:
+        # Fallback: try reading from pyproject.toml if running from source
+        try:
+            import tomllib
+
+            pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
+            if pyproject_path.exists():
+                with open(pyproject_path, "rb") as f:
+                    data = tomllib.load(f)
+                    cli_version = data.get("project", {}).get("version", "unknown")
+        except Exception:
+            pass
+
+    # Display version info
+    info_table = Table(show_header=False, box=None, padding=(0, 2))
+    info_table.add_column("Key", style="cyan", justify="right")
+    info_table.add_column("Value", style="white")
+
+    info_table.add_row("CLI Version", cli_version)
+    info_table.add_row("Python", platform.python_version())
+    info_table.add_row("Platform", platform.system())
+    info_table.add_row("Architecture", platform.machine())
+
+    version_panel = Panel(
+        info_table,
+        title="[bold cyan]Spectrena CLI[/bold cyan]",
+        border_style="cyan",
+        padding=(1, 2),
+    )
+    console.print(version_panel)
+    console.print()
+
     console.print("[bold]Checking for installed tools...[/bold]\n")
 
     tracker = StepTracker("Check Available Tools")
@@ -1958,189 +1987,6 @@ def check():
 
     if not any(agent_results.values()):
         console.print("[dim]Tip: Install an AI assistant for the best experience[/dim]")
-
-
-@app.command()
-def version():
-    """Display version and system information."""
-    import platform
-    import importlib.metadata
-
-    show_banner()
-
-    # Get CLI version from package metadata
-    cli_version = "unknown"
-    try:
-        cli_version = importlib.metadata.version("spectrena")
-    except Exception:
-        # Fallback: try reading from pyproject.toml if running from source
-        try:
-            import tomllib
-
-            pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
-            if pyproject_path.exists():
-                with open(pyproject_path, "rb") as f:
-                    data = tomllib.load(f)
-                    cli_version = data.get("project", {}).get("version", "unknown")
-        except Exception:
-            pass
-
-    # Fetch latest template release version
-    repo_owner = "rghsoftware"
-    repo_name = "spectrena"
-    api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
-
-    template_version = "unknown"
-    release_date = "unknown"
-
-    try:
-        response = client.get(
-            api_url,
-            timeout=10,
-            follow_redirects=True,
-            headers=_github_auth_headers(),
-        )
-        if response.status_code == 200:
-            release_data = response.json()
-            template_version = release_data.get("tag_name", "unknown")
-            # Remove 'v' prefix if present
-            if template_version.startswith("v"):
-                template_version = template_version[1:]
-            release_date = release_data.get("published_at", "unknown")
-            if release_date != "unknown":
-                # Format the date nicely
-                try:
-                    dt = datetime.fromisoformat(release_date.replace("Z", "+00:00"))
-                    release_date = dt.strftime("%Y-%m-%d")
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-    info_table = Table(show_header=False, box=None, padding=(0, 2))
-    info_table.add_column("Key", style="cyan", justify="right")
-    info_table.add_column("Value", style="white")
-
-    info_table.add_row("CLI Version", cli_version)
-    info_table.add_row("Template Version", template_version)
-    info_table.add_row("Released", release_date)
-    info_table.add_row("", "")
-    info_table.add_row("Python", platform.python_version())
-    info_table.add_row("Platform", platform.system())
-    info_table.add_row("Architecture", platform.machine())
-    info_table.add_row("OS Version", platform.version())
-
-    panel = Panel(
-        info_table,
-        title="[bold cyan]Spectrena CLI Information[/bold cyan]",
-        border_style="cyan",
-        padding=(1, 2),
-    )
-
-    console.print(panel)
-    console.print()
-
-
-@app.command()
-def mcp():
-    """Start Spectrena MCP server for lineage tracking."""
-    from spectrena.lineage.server import main
-
-    main()
-
-
-@app.command()
-def register_spec(
-    spec_id: str = typer.Argument(...),
-    title: str = typer.Argument(...),
-    component: str = typer.Option(None, "-c", "--component"),
-):
-    """Register a new spec in lineage database."""
-    import asyncio
-    from spectrena.lineage.db import LineageDB
-    from spectrena.config import Config
-
-    config = Config.load()
-    if not config.lineage.enabled:
-        print("Lineage tracking not enabled")
-        return
-
-    async def _register():
-        db = LineageDB(Path(config.lineage.lineage_db))
-        await db.register_spec(spec_id, title, component)
-        print(f"✓ Registered {spec_id}")
-
-    asyncio.run(_register())
-
-
-# Register commands
-@app.command(name="new")
-def new_command(
-    description: str = typer.Argument(..., help="Feature description"),
-    component: Optional[str] = typer.Option(
-        None, "-c", "--component", help="Component (e.g., CORE, API, UI)"
-    ),
-    number: Optional[int] = typer.Option(
-        None, "-n", "--number", help="Override spec number"
-    ),
-    no_branch: bool = typer.Option(
-        False, "--no-branch", help="Skip git branch creation"
-    ),
-    no_lineage: bool = typer.Option(
-        False, "--no-lineage", help="Skip lineage registration"
-    ),
-):
-    """Create a new spec with auto-generated ID."""
-    new_spec(description, component, number, no_branch, no_lineage)
-
-
-@app.command(name="plan-init", deprecated=True)
-def plan_init_command(
-    spec_dir: Optional[Path] = typer.Argument(
-        None, help="Spec directory (auto-detected if not provided)"
-    ),
-    force: bool = typer.Option(
-        False, "--force", "-f", help="Overwrite existing plan files"
-    ),
-):
-    """[DEPRECATED] Use /spectrena.plan instead. Initialize planning phase for a spec."""
-    console.print(
-        "[yellow]Warning:[/yellow] plan-init is deprecated. Use /spectrena.plan in your AI agent instead."
-    )
-    console.print(
-        "[dim]The /spectrena.plan command creates plan.md directly without scaffolding.[/dim]"
-    )
-    console.print()
-    plan_init(spec_dir, force)
-
-
-@app.command(name="doctor")
-def doctor_command(
-    verbose: bool = typer.Option(
-        False, "--verbose", "-v", help="Show additional diagnostic info"
-    ),
-    check_optional: bool = typer.Option(
-        False, "--all", "-a", help="Also check optional dependencies"
-    ),
-):
-    """Check system for required dependencies."""
-    doctor_cmd(verbose, check_optional)
-
-
-@app.command(name="update-context")
-def update_context_command(
-    agent_file: Path = typer.Option(
-        Path("CLAUDE.md"), "--file", "-f", help="Agent context file to update"
-    ),
-    spec_dir: Optional[Path] = typer.Option(
-        None, "--spec", "-s", help="Spec directory containing plan.md"
-    ),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", "-n", help="Show changes without writing"
-    ),
-):
-    """Update agent context file with tech stack from plan.md."""
-    update_context(agent_file, spec_dir, dry_run)
 
 
 def main():

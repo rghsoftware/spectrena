@@ -1,19 +1,11 @@
 ---
-description: Extract actionable tasks from the implementation plan.
-handoffs:
-  - label: Analyze For Consistency
-    agent: spectrena.analyze
-    prompt: Run a project analysis for consistency
-    send: true
-  - label: Implement Project
-    agent: spectrena.implement
-    prompt: Start the implementation in phases
-    send: true
+description: Generate actionable tasks from plan
+arguments: []
 ---
 
-# /spectrena.tasks
+# Tasks
 
-Extract actionable tasks from the implementation plan.
+Generate actionable tasks from the current spec's plan.
 
 ## Usage
 
@@ -23,62 +15,34 @@ Extract actionable tasks from the implementation plan.
 
 ## Behavior
 
-1. **Find current spec directory**
+1. Detect current spec from branch `spec/{SPEC-ID}`
+2. **Git: Ensure on spec branch:**
+   ```bash
+   git checkout spec/{SPEC-ID}
+   ```
+3. Read `specs/{SPEC-ID}/plan.md`
+4. Extract phases and high-level tasks
+5. Break into atomic, actionable tasks
+6. Write to `specs/{SPEC-ID}/tasks.md`
+7. **Git: Commit:**
+   ```bash
+   git add specs/{SPEC-ID}/tasks.md
+   git commit -m "tasks({SPEC-ID}): Generate implementation tasks"
+   ```
 
-2. **Read plan.md** - must exist (run `/spectrena.plan` first if not)
-
-3. **Extract tasks** organized by phase/component
-
-4. **Create tasks.md** with:
-   - Task IDs
-   - Dependencies between tasks
-   - Estimated complexity
-   - File paths where work will happen
-
-## Output Format
-
-Create `tasks.md` in the spec directory:
+## Task Format
 
 ```markdown
-# Tasks: {SPEC_ID}
+# Tasks: SPEC-ID
 
-## Phase 1: [Phase Name]
+## Phase 1: [Name]
 
-### T1: [Task Title]
-- **Complexity:** S/M/L
-- **Files:** `src/path/to/file.py`
-- **Depends on:** (none)
-- **Description:** Brief description of what to implement
+- [ ] Task 1 description
+  - Acceptance: [How to verify complete]
+  - Files: [Expected files to create/modify]
 
-### T2: [Task Title]
-- **Complexity:** M
-- **Files:** `src/auth/oauth.py`, `src/auth/providers/`
-- **Depends on:** T1
-- **Description:** ...
-
-## Phase 2: [Phase Name]
-
-### T3: [Task Title]
-...
-
-## Task Dependency Graph
-
-```mermaid
-graph TD
-    T1 --> T2
-    T2 --> T3
-    T2 --> T4
-    T3 --> T5
-    T4 --> T5
-```
-
-## Summary
-
-| Phase | Tasks | Total Complexity |
-|-------|-------|------------------|
-| Phase 1 | 3 | M |
-| Phase 2 | 4 | L |
-| **Total** | **7** | |
+- [ ] Task 2 description
+  ...
 ```
 
 ## Example
@@ -86,21 +50,25 @@ graph TD
 ```
 User: /spectrena.tasks
 
-Claude: Reading specs/CORE-001-oauth-authentication/plan.md...
+Claude: Current branch: spec/CORE-001-oauth-login
+Reading specs/CORE-001-oauth-login/plan.md...
 
-Extracting tasks...
+Generating tasks:
 
-✓ Created: specs/CORE-001-oauth-authentication/tasks.md
+## Phase 1: OAuth Provider Setup
 
-Found 7 tasks across 2 phases:
-- Phase 1 (Setup): 3 tasks
-- Phase 2 (Implementation): 4 tasks
+- [ ] Create Google Cloud project and OAuth credentials
+  - Acceptance: Client ID and secret in .env
+  - Files: .env.example, docs/oauth-setup.md
 
-Task dependency graph included. Ready to implement!
+- [ ] Create GitHub OAuth app
+  - Acceptance: Client ID and secret in .env
+  - Files: .env.example
+
+[writes tasks.md]
+
+$ git add specs/CORE-001-oauth-login/tasks.md
+$ git commit -m "tasks(CORE-001-oauth-login): Generate implementation tasks"
+
+Created specs/CORE-001-oauth-login/tasks.md
 ```
-
-## Notes
-
-- **Requires plan.md** - run `/spectrena.plan` first
-- **Task IDs are local** - T1, T2, etc. within this spec
-- **Dependencies tracked** - both within spec and to other specs

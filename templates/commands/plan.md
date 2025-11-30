@@ -1,18 +1,11 @@
 ---
-description: Generate an implementation plan for the current spec.
-handoffs:
-  - label: Create Tasks
-    agent: spectrena.tasks
-    prompt: Break the plan into tasks
-    send: true
-  - label: Create Checklist
-    agent: spectrena.checklist
-    prompt: Create a checklist for the following domain...
+description: Create implementation plan for current spec
+arguments: []
 ---
 
-# /spectrena.plan
+# Plan
 
-Generate an implementation plan for the current spec.
+Create an implementation plan for the current specification.
 
 ## Usage
 
@@ -22,92 +15,57 @@ Generate an implementation plan for the current spec.
 
 ## Behavior
 
-1. **Find current spec:**
-   - Check if in a spec directory (has spec.md)
-   - If not, check git branch for spec ID pattern (`spec/SPEC-ID`)
-   - If neither, ask user which spec to plan
+1. Detect current spec:
+   - Check current git branch for `spec/{SPEC-ID}` pattern
+   - Or find spec directory in current path
+2. **Git: Ensure on spec branch:**
+   ```bash
+   git checkout spec/{SPEC-ID}
+   ```
+3. Read `specs/{SPEC-ID}/spec.md`
+4. Copy template: `.spectrena/templates/plan-template.md` -> `specs/{SPEC-ID}/plan.md`
+5. Generate implementation plan based on spec content
+6. Write to `specs/{SPEC-ID}/plan.md`
+7. **Git: Commit:**
+   ```bash
+   git add specs/{SPEC-ID}/plan.md
+   git commit -m "plan({SPEC-ID}): Create implementation plan"
+   ```
 
-2. **Read spec.md** to understand requirements
+## Content Generation
 
-3. **Create plan.md** with:
-   - Tech stack decisions
-   - Architecture overview
-   - Component breakdown
-   - Implementation phases
-   - Risk considerations
-
-4. **Optionally create supporting files** if complexity warrants:
-   - `data-model.md` - Entity schemas (if data persistence involved)
-   - `contracts/` - API specs (if building APIs)
-
-## Output Format
-
-Create `plan.md` in the spec directory:
-
-```markdown
-# Implementation Plan: {SPEC_ID}
-
-## Tech Stack
-
-| Layer | Technology | Rationale |
-|-------|------------|-----------|
-| ... | ... | ... |
-
-## Architecture
-
-[High-level architecture description]
-
-## Components
-
-### Component 1: [Name]
-- Purpose:
-- Key files:
-- Dependencies:
-
-### Component 2: [Name]
-...
-
-## Implementation Phases
-
-### Phase 1: [Name]
-- [ ] Task 1
-- [ ] Task 2
-
-### Phase 2: [Name]
-...
-
-## Risks & Mitigations
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| ... | ... | ... |
-
-## Open Questions
-
-- [ ] Question from spec that affects implementation
-```
+| Section | Source |
+|---------|--------|
+| **Overview** | From spec Problem + Solution |
+| **Phases** | Break solution into sequential phases |
+| **Tasks** | Concrete implementation tasks per phase |
+| **Dependencies** | External deps, order constraints |
+| **Risks** | Technical risks and mitigations |
 
 ## Example
 
 ```
 User: /spectrena.plan
 
-Claude: Reading specs/CORE-001-oauth-authentication/spec.md...
+Claude: Current branch: spec/CORE-001-oauth-login
+Reading specs/CORE-001-oauth-login/spec.md...
 
-Creating implementation plan...
+Generating implementation plan:
 
-✓ Created: specs/CORE-001-oauth-authentication/plan.md
+Phase 1: OAuth Provider Setup
+- Configure Google OAuth credentials
+- Configure GitHub OAuth credentials
+- Set up environment variables
 
-The plan covers:
-- Tech stack: FastAPI + authlib + JWT
-- 3 implementation phases
-- 2 identified risks with mitigations
+Phase 2: Auth Flow Implementation
+- Create OAuth redirect endpoints
+- Implement token exchange
+- Store refresh tokens
 
-Ready for /spectrena.tasks when you want to break this into actionable tasks.
+[writes plan.md]
+
+$ git add specs/CORE-001-oauth-login/plan.md
+$ git commit -m "plan(CORE-001-oauth-login): Create implementation plan"
+
+Created specs/CORE-001-oauth-login/plan.md
 ```
-
-## Notes
-
-- **No scaffolding required** - this command creates plan.md directly
-- **Reads spec first** - plan is based on spec requirements
-- **Idempotent** - running again updates existing plan (ask before overwriting)

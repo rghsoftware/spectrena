@@ -1,14 +1,11 @@
 ---
-description: Refine the current spec through structured clarifying questions.
-handoffs:
-  - label: Build Technical Plan
-    agent: spectrena.plan
-    prompt: Create a plan for the spec. I am building with...
+description: Ask clarifying questions about current spec
+arguments: []
 ---
 
-# /spectrena.clarify
+# Clarify
 
-Refine the current spec through structured clarifying questions.
+Analyze current spec and ask clarifying questions to fill gaps.
 
 ## Usage
 
@@ -18,62 +15,45 @@ Refine the current spec through structured clarifying questions.
 
 ## Behavior
 
-1. **Find and read current spec.md**
-
-2. **Analyze for gaps:**
-   - Ambiguous requirements
-   - Missing edge cases
-   - Unclear success criteria
-   - Unstated assumptions
-
-3. **Ask structured questions** (max 5 at a time)
-
-4. **Update spec.md** with clarifications in a `## Clarifications` section
-
-## Question Categories
-
-| Category | Example Questions |
-|----------|-------------------|
-| Scope | "Should X also handle Y case?" |
-| Edge Cases | "What happens when Z fails?" |
-| Integration | "How does this interact with existing A?" |
-| Performance | "Expected load/scale requirements?" |
-| Security | "Authentication/authorization needs?" |
+1. Detect current spec from branch `spec/{SPEC-ID}`
+2. **Git: Ensure on spec branch:**
+   ```bash
+   git checkout spec/{SPEC-ID}
+   ```
+3. Read `specs/{SPEC-ID}/spec.md`
+4. Identify gaps or ambiguities:
+   - Vague requirements
+   - Missing acceptance criteria
+   - Undefined edge cases
+   - Unclear dependencies
+5. Ask focused questions
+6. Update spec.md with answers
+7. **Git: Commit updates:**
+   ```bash
+   git add specs/{SPEC-ID}/spec.md
+   git commit -m "spec({SPEC-ID}): Clarify requirements"
+   ```
 
 ## Example
 
 ```
 User: /spectrena.clarify
 
-Claude: Reading specs/CORE-001-oauth-authentication/spec.md...
+Claude: Current branch: spec/CORE-001-oauth-login
+Reading specs/CORE-001-oauth-login/spec.md...
 
-I have a few clarifying questions:
+I have a few questions to clarify the spec:
 
-**Scope:**
-1. Should we support account linking (multiple OAuth providers per user)?
+1. **Session Duration**: How long should sessions last before requiring re-auth?
+2. **Error Handling**: What should happen if OAuth provider is down?
+3. **Account Linking**: Can users link multiple OAuth providers to one account?
 
-**Edge Cases:**
-2. What happens if a user's email changes on the OAuth provider side?
-3. Should we handle provider outages gracefully?
+User: 7 days, show friendly error with retry, yes allow linking
 
-**Security:**
-4. Token refresh strategy - silent refresh or require re-auth?
+Claude: [updates spec.md with clarified requirements]
 
-Answer what you can, skip what you're unsure about.
+$ git add specs/CORE-001-oauth-login/spec.md
+$ git commit -m "spec(CORE-001-oauth-login): Clarify requirements"
 
-User: 1. Yes, support linking. 2. Keep our email, don't sync. 3. Yes, show friendly error. 4. Silent refresh.
-
-Claude: ✓ Updated specs/CORE-001-oauth-authentication/spec.md
-
-Added clarifications:
-- Account linking: supported
-- Email sync: disabled (keep local)
-- Provider outages: graceful degradation
-- Token refresh: silent
+Updated specs/CORE-001-oauth-login/spec.md
 ```
-
-## Notes
-
-- **Non-blocking** - user can skip questions
-- **Iterative** - run multiple times as understanding evolves
-- **Updates spec** - clarifications added to spec.md, not separate file
