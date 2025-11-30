@@ -16,13 +16,14 @@ uv tool install spectrena[lineage-surreal]
 cd my-project
 spectrena init
 
-# Create your first spec
-spectrena new -c CORE "User authentication"
+# Check your setup
+spectrena check
 
 # In Claude Code, use slash commands
-/spectrena.specify "OAuth integration"
+/spectrena.specify "User authentication" -c CORE
 /spectrena.plan
-/spectrena.deps
+/spectrena.tasks
+/spectrena.implement
 ```
 
 > **Note:** Spectrena is currently optimized for **Claude Code**. The clarifying
@@ -80,8 +81,8 @@ uv tool install "git+https://github.com/rghsoftware/serena-lineage"
 
 ```bash
 spectrena --help
+spectrena check
 sw --help
-spectrena-mcp --help
 ```
 
 ## Project Structure
@@ -134,19 +135,12 @@ my-project/
 
 ## CLI Commands
 
-### Core Commands
+| Command          | Description                                           |
+| ---------------- | ----------------------------------------------------- |
+| `spectrena init` | Initialize project with wizard, download templates    |
+| `spectrena check`| Verify required tools are installed, display version  |
 
-| Command                            | Description                       |
-| ---------------------------------- | --------------------------------- |
-| `spectrena init`                   | Initialize project with wizard    |
-| `spectrena init --from-discovery`  | Use discovery.md recommendations  |
-| `spectrena discover "description"` | Generate discovery doc (Phase -2) |
-| `spectrena new "description"`      | Create new spec + branch          |
-| `spectrena new -c CORE "desc"`     | Create spec with component        |
-| `spectrena plan-init`              | Initialize plan artifacts         |
-| `spectrena doctor`                 | Check dependencies                |
-| `spectrena config --show`          | Display configuration             |
-| `spectrena config --migrate`       | Migrate existing specs            |
+All other functionality is available through slash commands in your AI agent.
 
 ### Worktree Commands (`sw`)
 
@@ -176,13 +170,16 @@ my-project/
 
 These commands are specifically designed for Claude Code's conversational capabilities:
 
-| Command                        | Description                           |
-| ------------------------------ | ------------------------------------- |
-| `/spectrena.specify "Feature"` | Create new spec                       |
-| `/spectrena.clarify`           | Refine current spec                   |
-| `/spectrena.plan`              | Generate implementation plan          |
-| `/spectrena.tasks`             | Break plan into tasks                 |
-| `/spectrena.deps`              | Analyze and generate dependency graph |
+| Command                                | Description                               |
+| -------------------------------------- | ----------------------------------------- |
+| `/spectrena.discover "idea"`           | Explore project idea before architecture  |
+| `/spectrena.constitution`              | Establish project principles              |
+| `/spectrena.specify "Feature" -c COMP` | Create feature specification              |
+| `/spectrena.clarify`                   | Ask clarifying questions about spec       |
+| `/spectrena.plan`                      | Create implementation plan                |
+| `/spectrena.tasks`                     | Generate actionable tasks from plan       |
+| `/spectrena.implement`                 | Execute implementation for current task   |
+| `/spectrena.deps`                      | Analyze and generate dependency graph     |
 
 ## Configuration
 
@@ -275,66 +272,56 @@ spectrena velocity --days 7
 
 ## Workflow
 
-### 1. Discovery (Optional)
+### 1. Initialize Project
 
 ```bash
-spectrena discover "Task management app for ADHD users"
+spectrena init
+# Or with discovery recommendations:
+spectrena init --from-discovery
+```
+
+### 2. Discovery (Optional - Phase -2)
+
+In Claude Code:
+
+```
+/spectrena.discover "Task management app for ADHD users"
 # Creates .spectrena/discovery.md with recommendations
 ```
 
-### 2. Initialize
-
-```bash
-spectrena init --from-discovery
-# Or interactive: spectrena init
-```
-
-### 3. Create Specs
-
-**Option A: Two-step (CLI + Claude)**
-
-```bash
-# Step 1: Create scaffold (brief title is fine)
-spectrena new -c CORE "User authentication"
-# Creates specs/CORE-001-user-auth/ with template
-```
-
-Then in Claude Code:
+### 3. Constitution (Optional - Phase -1)
 
 ```
-# Step 2: Generate detailed content (Claude asks clarifying questions)
-/spectrena.specify
+/spectrena.constitution
+# Establishes project principles in .spectrena/constitution.md
 ```
 
-**Option B: One-step (Claude only)**
+### 4. Create Specs
+
+In Claude Code:
 
 ```
 /spectrena.specify "User authentication" -c CORE
-# Claude asks clarifying questions, then generates full spec
+# Claude asks clarifying questions, creates spec, and switches to spec branch
 ```
 
 Brief descriptions are fine - Claude will ask 2-3 clarifying questions if needed.
 
-### 4. Plan & Implement
-
-```bash
-spectrena plan-init specs/CORE-001-user-auth
-```
-
-Or in Claude Code:
+### 5. Plan & Implement
 
 ```
-/spectrena.plan
-/spectrena.tasks
+/spectrena.plan       # Create implementation plan
+/spectrena.tasks      # Break into actionable tasks
+/spectrena.implement  # Execute tasks one by one
 ```
 
-### 5. Parallel Development
+### 6. Parallel Development (Advanced)
 
 ```bash
 # Set up dependencies
 /spectrena.deps  # In Claude Code
 
-# Work on unblocked specs
+# Work on unblocked specs using worktrees
 sw ready
 sw create spec/CORE-001-user-auth
 # ... implement ...
@@ -378,14 +365,19 @@ pytest
 │                         SPECTRENA                               │
 ├─────────────────────────────────────────────────────────────────┤
 │  CLI Layer (pure Python)                                        │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                      │
+│  │   init   │  │   check  │  │  sw dep  │                      │
+│  └──────────┘  └──────────┘  └──────────┘                      │
+│                                                                 │
+│  Slash Commands (AI Agent)                                      │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
-│  │ discover │  │   new    │  │plan-init │  │  sw dep  │        │
+│  │ discover │  │ specify  │  │   plan   │  │implement │        │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘        │
 │                                                                 │
-│  MCP Servers                                                    │
+│  MCP Servers (Optional)                                         │
 │  ┌────────────────────────┐    ┌────────────────────────┐      │
 │  │    spectrena-mcp       │    │    serena-mcp          │      │
-│  │  (spec/task mgmt)      │    │  (semantic editing)    │      │
+│  │  (lineage tracking)    │    │  (semantic editing)    │      │
 │  └───────────┬────────────┘    └───────────┬────────────┘      │
 │              └──────────┬──────────────────┘                    │
 │                         ▼                                       │

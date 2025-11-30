@@ -1,175 +1,136 @@
-# /spectrena.specify
+---
+description: Create or generate content for a specification
+arguments:
+  - name: description
+    description: Brief title/description for the spec
+    required: false
+  - name: component
+    description: Component prefix (CORE, API, UI, etc.)
+    required: false
+    flag: -c,--component
+---
+
+# Specify
 
 Create or generate content for a specification.
 
 ## Usage
 
 ```
-# Create new spec with content (one-step)
 /spectrena.specify "Brief description" -c COMPONENT
-
-# Generate content for existing spec OR create new interactively
 /spectrena.specify
 ```
 
-## Arguments
+## Input Expectations
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| description | No | Brief title/description (if creating new) |
-| --component, -c | Depends | Component prefix (CORE, API, UI, etc.) |
+**Brief is fine.** If the description lacks detail, ask 2-3 clarifying questions before generating.
+
+| Input | Action |
+|-------|--------|
+| `"User auth"` | Ask: "OAuth? Username/password? What providers?" |
+| `"Monorepo setup"` | Ask: "What tools? Melos? Nx? What's being shared?" |
+| Detailed paragraph | Generate directly |
+
+**Max 3 clarification rounds.** Then generate with stated assumptions.
 
 ## Behavior
 
 ### Mode 1: With Description (Create New)
 
 1. Validate component (prompt if required but missing)
-2. **Create spec using CLI:** `spectrena new -c {component} "{description}"`
-   - Creates spec directory with template
-   - Creates git branch `spec/{spec-id}`
-   - Registers in lineage database
-3. If description is brief (< 20 words), ask 2-3 clarifying questions
-4. Generate full spec content based on description + clarifications
-5. Update spec.md with generated content
+2. If description brief (< 20 words), ask 2-3 clarifying questions
+3. Read `.spectrena/config.yml` for spec ID template
+4. Find next spec number by scanning `specs/` directory
+5. Generate spec ID: apply template (e.g., `CORE-001-user-auth`)
+6. **Git: Ensure clean working tree** (warn if uncommitted changes)
+7. Create directory: `specs/{SPEC-ID}/`
+8. Copy template: `.spectrena/templates/spec-template.md` -> `specs/{SPEC-ID}/spec.md`
+9. **Git: Create and checkout branch:**
+   ```bash
+   git checkout -b spec/{SPEC-ID}
+   ```
+10. Generate full spec content based on description + clarifications
+11. Write content to `specs/{SPEC-ID}/spec.md`
+12. **Git: Stage and commit:**
+    ```bash
+    git add specs/{SPEC-ID}/
+    git commit -m "spec({SPEC-ID}): Initialize specification"
+    ```
 
-### Mode 2: Without Arguments
+### Mode 2: Without Arguments (Fill Existing)
 
-**If in a spec directory (spec.md exists):**
-1. Read existing spec.md
-2. Extract description from `## Description` section
-3. If description is brief, ask clarifying questions
-4. Generate content for empty sections
-5. Update spec.md in place
+1. Detect current spec:
+   - Check current git branch for `spec/{SPEC-ID}` pattern
+   - Or find spec directory in current path
+2. **Git: Ensure on correct branch:**
+   ```bash
+   # If not on spec branch, checkout it
+   git checkout spec/{SPEC-ID}
+   ```
+3. Read existing `spec.md`
+4. If description brief, ask clarifying questions
+5. Generate content for empty sections
+6. Update `spec.md` in place
+7. **Git: Commit changes:**
+   ```bash
+   git add specs/{SPEC-ID}/spec.md
+   git commit -m "spec({SPEC-ID}): Expand specification content"
+   ```
 
-**If NOT in a spec directory:**
-1. Ask clarifying questions to understand what to build:
-   - What feature/capability?
-   - What problem does it solve?
-   - Which component?
-2. Generate descriptive title from answers
-3. **Create spec using CLI:** `spectrena new -c {component} "{generated_title}"`
-4. Generate full spec content
-5. Save to spec.md
+## Spec ID Generation
 
-## Clarification Guidelines
+Read from `.spectrena/config.yml`:
 
-**Brief is fine.** If the description lacks detail, ask 2-3 focused questions:
-
-| Input | Questions to Ask |
-|-------|------------------|
-| `"User auth"` | "OAuth? Username/password? What providers?" |
-| `"Monorepo setup"` | "What tools? Melos? Nx? What's being shared?" |
-| `"REST API"` | "What resources? Auth required? Rate limiting?" |
-| (no input) | "What feature? What problem? Which component?" |
-
-**Max 3 clarification rounds.** Then generate with stated assumptions.
-
-**Always offer to proceed with defaults** - don't block on answers:
-
+```yaml
+spec_id:
+  template: "{component}-{NNN}-{slug}"
+  padding: 3
+  components:
+    - CORE
+    - API
+    - UI
 ```
-I can generate with reasonable defaults if you prefer, or answer these quick questions for a more tailored spec.
-```
+
+Apply template:
+- `{component}` -> provided component (e.g., CORE)
+- `{NNN}` -> next number, zero-padded (e.g., 001)
+- `{slug}` -> slugified description (e.g., user-auth)
 
 ## Content Generation
 
-Fill these sections based on description + clarifications:
+Fill sections based on description:
 
-| Section | Guidelines |
-|---------|------------|
-| **Description** | Preserved from input or generated from clarifications |
-| **Problem** | What pain point? Who is affected? 2-3 sentences. |
-| **Solution** | High-level approach (not implementation). 2-3 sentences. |
-| **Dependencies** | Other spec IDs that must complete first. |
-| **Open Questions** | Unresolved decisions (from clarification gaps). |
+| Section | Source |
+|---------|--------|
+| **Title** | From description |
+| **Problem** | Infer from description + clarifications |
+| **Solution** | Proposed approach |
+| **Scope** | What's in/out |
+| **Dependencies** | Other specs this depends on |
+| **Acceptance Criteria** | Testable requirements |
 
-## Examples
-
-### Example 1: Mode 1 with brief input
+## Example
 
 ```
-User: /spectrena.specify "Auth system" -c CORE
+User: /spectrena.specify "OAuth login" -c CORE
 
 Claude: I'll create the CORE auth spec. Quick questions:
+1. Which OAuth providers? (Google, GitHub, etc.)
+2. Need refresh tokens?
+3. Any role-based access?
 
-1. Authentication method? (OAuth, username/password, SSO?)
-2. Which OAuth providers if applicable?
-3. Need role-based access control?
+User: Google and GitHub, yes refresh tokens, no roles yet
 
-Or I can generate with OAuth + Google/GitHub defaults.
+Claude: Creating CORE-001-oauth-login...
 
-User: OAuth with Google and GitHub, no RBAC for now
+$ git checkout -b spec/CORE-001-oauth-login
+Switched to a new branch 'spec/CORE-001-oauth-login'
 
-Claude: Creating spec...
+[creates directory, writes spec.md]
 
-$ spectrena new -c CORE "OAuth authentication with Google and GitHub providers"
-✓ Created specs/CORE-001-oauth-authentication/
-✓ Created branch spec/CORE-001-oauth-authentication
+$ git add specs/CORE-001-oauth-login/
+$ git commit -m "spec(CORE-001-oauth-login): Initialize specification"
 
-[generates and saves full spec content]
-
-✓ Spec ready: specs/CORE-001-oauth-authentication/spec.md
-  Branch: spec/CORE-001-oauth-authentication
-```
-
-### Example 2: Mode 1 with detailed input
-
-```
-User: /spectrena.specify "OAuth authentication with Google and GitHub providers, JWT sessions, no RBAC initially" -c CORE
-
-Claude: Creating spec...
-
-$ spectrena new -c CORE "OAuth authentication with Google and GitHub providers"
-✓ Created specs/CORE-001-oauth-authentication/
-✓ Created branch spec/CORE-001-oauth-authentication
-
-[generates full spec directly, no questions needed]
-
-✓ Spec ready: specs/CORE-001-oauth-authentication/spec.md
-  Branch: spec/CORE-001-oauth-authentication
-```
-
-### Example 3: Mode 2 in existing spec directory
-
-```
-User: /spectrena.specify
-
-Claude: Reading specs/CORE-001-monorepo-setup/spec.md...
-
-Description: "Monorepo and Build System"
-
-That's brief. A few questions:
-1. Monorepo tool preference? (Melos, Nx, Turborepo?)
-2. What packages/apps will share code?
-3. CI/CD integration needed?
-
-User: Melos for Flutter, 3 apps sharing a design system, GitHub Actions
-
-Claude: [fills in Problem, Solution, etc. in existing spec.md]
-
-✓ Updated: specs/CORE-001-monorepo-setup/spec.md
-```
-
-### Example 4: Mode 2 with no existing spec
-
-```
-User: /spectrena.specify
-
-Claude: No spec found in current directory. Let's create one.
-
-1. What feature are you building?
-2. What problem does it solve?
-3. Which component? (CORE, API, UI, INFRA)
-
-User: Need a notification system for sending push and email alerts. It's infrastructure level.
-
-Claude: Creating spec...
-
-$ spectrena new -c INFRA "Push and email notification system"
-✓ Created specs/INFRA-001-push-and-email-notification-system/
-✓ Created branch spec/INFRA-001-push-and-email-notification-system
-
-[generates full spec content]
-
-✓ Spec ready: specs/INFRA-001-push-and-email-notification-system/spec.md
-  Branch: spec/INFRA-001-push-and-email-notification-system
+Created specs/CORE-001-oauth-login/spec.md
+On branch spec/CORE-001-oauth-login
 ```
