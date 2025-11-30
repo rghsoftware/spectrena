@@ -247,7 +247,7 @@ def dep_sync(
     from spectrena.config import Config
 
     config = Config.load()
-    if not config.spectrena.enabled:
+    if not config.lineage.enabled:
         console.print("[yellow]Lineage not enabled - nothing to sync[/yellow]")
         return
 

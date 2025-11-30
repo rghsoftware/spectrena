@@ -66,10 +66,11 @@ class SpecIdConfig:
 
 
 @dataclass
-class SpectrenaConfig:
+class LineageConfig:
+    """Lineage tracking configuration."""
+
     enabled: bool = False
     lineage_db: str = "surrealkv://.spectrena/lineage"
-    db_type: str = "surrealdb"
     auto_register: bool = True
 
 
@@ -82,8 +83,10 @@ class WorkflowConfig:
 
 @dataclass
 class Config:
+    """Project configuration."""
+
     spec_id: SpecIdConfig = field(default_factory=SpecIdConfig)
-    spectrena: SpectrenaConfig = field(default_factory=SpectrenaConfig)
+    lineage: LineageConfig = field(default_factory=LineageConfig)
     workflow: WorkflowConfig = field(default_factory=WorkflowConfig)
 
     @classmethod
@@ -115,15 +118,17 @@ class Config:
             _yaml_get_array(content, "spec_id", "components") or []
         )
 
-        enabled = _yaml_get(content, "spectrena", "enabled")
+        # Parse lineage section
+        enabled = _yaml_get(content, "lineage", "enabled")
         if enabled:
-            config.spectrena.enabled = enabled.lower() == "true"
-        config.spectrena.lineage_db = (
-            _yaml_get(content, "spectrena", "lineage_db") or config.spectrena.lineage_db
-        )
-        config.spectrena.db_type = (
-            _yaml_get(content, "spectrena", "db_type") or config.spectrena.db_type
-        )
+            config.lineage.enabled = enabled.lower() == "true"
+        if config.lineage.enabled:
+            db_url = _yaml_get(content, "lineage", "lineage_db")
+            if db_url:
+                config.lineage.lineage_db = db_url
+            auto_reg = _yaml_get(content, "lineage", "auto_register")
+            if auto_reg:
+                config.lineage.auto_register = auto_reg.lower() == "true"
 
         return config
 
@@ -150,14 +155,20 @@ class Config:
                 lines.append(f"    - {c}")
         lines.append(f'  numbering_source: "{self.spec_id.numbering_source}"')
 
-        if self.spectrena.enabled:
+        # Add lineage section
+        lines.extend(
+            [
+                "",
+                "lineage:",
+                f"  enabled: {str(self.lineage.enabled).lower()}",
+            ]
+        )
+
+        if self.lineage.enabled:
             lines.extend(
                 [
-                    "",
-                    "spectrena:",
-                    f"  enabled: {str(self.spectrena.enabled).lower()}",
-                    f'  lineage_db: "{self.spectrena.lineage_db}"',
-                    f'  db_type: "{self.spectrena.db_type}"',
+                    f'  lineage_db: "{self.lineage.lineage_db}"',
+                    f"  auto_register: {str(self.lineage.auto_register).lower()}",
                 ]
             )
 
@@ -198,6 +209,17 @@ def _yaml_get_array(content: str, parent: str, key: str) -> list[str]:
                 if match:
                     result.append(match.group(1).strip().strip('"').strip("'"))
     return result
+
+
+def _check_lineage_available() -> bool:
+    """Check if lineage optional dependencies are installed."""
+    try:
+        import surrealdb  # noqa: F401
+        import fastmcp  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
 
 
 def run_config_wizard(project_dir: Optional[Path] = None) -> Config:
@@ -309,6 +331,43 @@ def run_config_wizard(project_dir: Optional[Path] = None) -> Config:
         project = console.input("[bold]Project prefix:[/] ")
         if project.strip():
             config.spec_id.project = project.strip().upper()
+
+    # === LINEAGE CONFIGURATION ===
+    console.clear()
+    console.print(
+        Panel(
+            "[cyan]Lineage Tracking[/cyan]\n\n"
+            "[bold]What is lineage tracking?[/]\n"
+            "Track specs → tasks → code changes for impact analysis.\n"
+            "See which specs depend on each other and get velocity metrics.\n\n"
+            "[bold]Features:[/]\n"
+            "  • Dependency graph between specs\n"
+            "  • Task progress tracking\n"
+            "  • Code change attribution\n"
+            "  • Impact analysis (what breaks if X slips?)\n",
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
+
+    lineage_available = _check_lineage_available()
+
+    if lineage_available:
+        import typer
+
+        enable_lineage = typer.confirm("Enable lineage tracking?", default=False)
+
+        if enable_lineage:
+            config.lineage.enabled = True
+            config.lineage.lineage_db = "surrealkv://.spectrena/lineage"
+            console.print("[green]✓ Lineage enabled[/green]")
+        else:
+            config.lineage.enabled = False
+            console.print("[dim]Lineage tracking disabled[/dim]")
+    else:
+        console.print("[yellow]Lineage dependencies not installed[/yellow]")
+        console.print("[dim]Install with: pip install spectrena[lineage-surreal][/dim]")
+        config.lineage.enabled = False
 
     config.save(project_dir)
     console.print("[green]✓ Configuration saved[/]")

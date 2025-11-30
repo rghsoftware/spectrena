@@ -2061,12 +2061,12 @@ def register_spec(
     from spectrena.config import Config
 
     config = Config.load()
-    if not config.spectrena.enabled:
+    if not config.lineage.enabled:
         print("Lineage tracking not enabled")
         return
 
     async def _register():
-        db = LineageDB(Path(config.spectrena.lineage_db))
+        db = LineageDB(Path(config.lineage.lineage_db))
         await db.register_spec(spec_id, title, component)
         print(f"✓ Registered {spec_id}")
 

@@ -14,9 +14,9 @@ async def init_lineage_db():
     from spectrena.config import Config
 
     config = Config.load()
-    if not config.spectrena.enabled:
+    if not config.lineage.enabled:
         return
 
-    db = LineageDB(Path(config.spectrena.lineage_db))
+    db = LineageDB(Path(config.lineage.lineage_db))
     schema_path = Path(__file__).parent / "schema.surql"
     await db.init_schema(schema_path)

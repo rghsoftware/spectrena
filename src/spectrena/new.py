@@ -174,11 +174,11 @@ async def register_in_lineage(spec_id: str, title: str, component: str | None):
         from spectrena.lineage.db import LineageDB
 
         config = Config.load()
-        if not config.spectrena.enabled:
+        if not config.lineage.enabled:
             return
 
         lineage_db_path = (
-            Path(config.spectrena.lineage_db) if config.spectrena.lineage_db else None
+            Path(config.lineage.lineage_db) if config.lineage.lineage_db else None
         )
         db = LineageDB(lineage_db_path)
         _ = await db.register_spec(spec_id, title, component or "")
