@@ -2094,7 +2094,7 @@ def new_command(
     new_spec(description, component, number, no_branch, no_lineage)
 
 
-@app.command(name="plan-init")
+@app.command(name="plan-init", deprecated=True)
 def plan_init_command(
     spec_dir: Optional[Path] = typer.Argument(
         None, help="Spec directory (auto-detected if not provided)"
@@ -2103,7 +2103,14 @@ def plan_init_command(
         False, "--force", "-f", help="Overwrite existing plan files"
     ),
 ):
-    """Initialize planning phase for a spec."""
+    """[DEPRECATED] Use /spectrena.plan instead. Initialize planning phase for a spec."""
+    console.print(
+        "[yellow]Warning:[/yellow] plan-init is deprecated. Use /spectrena.plan in your AI agent instead."
+    )
+    console.print(
+        "[dim]The /spectrena.plan command creates plan.md directly without scaffolding.[/dim]"
+    )
+    console.print()
     plan_init(spec_dir, force)
 
 

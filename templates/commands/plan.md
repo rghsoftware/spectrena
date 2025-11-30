@@ -1,5 +1,5 @@
 ---
-description: Execute the implementation planning workflow using the plan template to generate design artifacts.
+description: Generate an implementation plan for the current spec.
 handoffs:
   - label: Create Tasks
     agent: spectrena.tasks
@@ -8,82 +8,106 @@ handoffs:
   - label: Create Checklist
     agent: spectrena.checklist
     prompt: Create a checklist for the following domain...
-agent_---
+---
 
-## User Input
+# /spectrena.plan
 
-```text
-$ARGUMENTS
+Generate an implementation plan for the current spec.
+
+## Usage
+
+```
+/spectrena.plan
 ```
 
-You **MUST** consider the user input before proceeding (if not empty).
+## Behavior
 
-## Outline
+1. **Find current spec:**
+   - Check if in a spec directory (has spec.md)
+   - If not, check git branch for spec ID pattern (`spec/SPEC-ID`)
+   - If neither, ask user which spec to plan
 
-1. **Setup**: Run `{SCRIPT}` from repo root and parse JSON for FEATURE_SPEC, IMPL_PLAN, SPECS_DIR, BRANCH. For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
+2. **Read spec.md** to understand requirements
 
-2. **Load context**: Read FEATURE_SPEC and `/memory/constitution.md`. Load IMPL_PLAN template (already copied).
+3. **Create plan.md** with:
+   - Tech stack decisions
+   - Architecture overview
+   - Component breakdown
+   - Implementation phases
+   - Risk considerations
 
-3. **Execute plan workflow**: Follow the structure in IMPL_PLAN template to:
-   - Fill Technical Context (mark unknowns as "NEEDS CLARIFICATION")
-   - Fill Constitution Check section from constitution
-   - Evaluate gates (ERROR if violations unjustified)
-   - Phase 0: Generate research.md (resolve all NEEDS CLARIFICATION)
-   - Phase 1: Generate data-model.md, contracts/, quickstart.md
-   - Phase 1: Update agent context by running the agent script
-   - Re-evaluate Constitution Check post-design
+4. **Optionally create supporting files** if complexity warrants:
+   - `data-model.md` - Entity schemas (if data persistence involved)
+   - `contracts/` - API specs (if building APIs)
 
-4. **Stop and report**: Command ends after Phase 2 planning. Report branch, IMPL_PLAN path, and generated artifacts.
+## Output Format
 
-## Phases
+Create `plan.md` in the spec directory:
 
-### Phase 0: Outline & Research
+```markdown
+# Implementation Plan: {SPEC_ID}
 
-1. **Extract unknowns from Technical Context** above:
-   - For each NEEDS CLARIFICATION → research task
-   - For each dependency → best practices task
-   - For each integration → patterns task
+## Tech Stack
 
-2. **Generate and dispatch research agents**:
+| Layer | Technology | Rationale |
+|-------|------------|-----------|
+| ... | ... | ... |
 
-   ```text
-   For each unknown in Technical Context:
-     Task: "Research {unknown} for {feature context}"
-   For each technology choice:
-     Task: "Find best practices for {tech} in {domain}"
-   ```
+## Architecture
 
-3. **Consolidate findings** in `research.md` using format:
-   - Decision: [what was chosen]
-   - Rationale: [why chosen]
-   - Alternatives considered: [what else evaluated]
+[High-level architecture description]
 
-**Output**: research.md with all NEEDS CLARIFICATION resolved
+## Components
 
-### Phase 1: Design & Contracts
+### Component 1: [Name]
+- Purpose:
+- Key files:
+- Dependencies:
 
-**Prerequisites:** `research.md` complete
+### Component 2: [Name]
+...
 
-1. **Extract entities from feature spec** → `data-model.md`:
-   - Entity name, fields, relationships
-   - Validation rules from requirements
-   - State transitions if applicable
+## Implementation Phases
 
-2. **Generate API contracts** from functional requirements:
-   - For each user action → endpoint
-   - Use standard REST/GraphQL patterns
-   - Output OpenAPI/GraphQL schema to `/contracts/`
+### Phase 1: [Name]
+- [ ] Task 1
+- [ ] Task 2
 
-3. **Agent context update**:
-   - Run `{AGENT_SCRIPT}`
-   - These scripts detect which AI agent is in use
-   - Update the appropriate agent-specific context file
-   - Add only new technology from current plan
-   - Preserve manual additions between markers
+### Phase 2: [Name]
+...
 
-**Output**: data-model.md, /contracts/\*, quickstart.md, agent-specific file
+## Risks & Mitigations
 
-## Key rules
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| ... | ... | ... |
 
-- Use absolute paths
-- ERROR on gate failures or unresolved clarifications
+## Open Questions
+
+- [ ] Question from spec that affects implementation
+```
+
+## Example
+
+```
+User: /spectrena.plan
+
+Claude: Reading specs/CORE-001-oauth-authentication/spec.md...
+
+Creating implementation plan...
+
+✓ Created: specs/CORE-001-oauth-authentication/plan.md
+
+The plan covers:
+- Tech stack: FastAPI + authlib + JWT
+- 3 implementation phases
+- 2 identified risks with mitigations
+
+Ready for /spectrena.tasks when you want to break this into actionable tasks.
+```
+
+## Notes
+
+- **No scaffolding required** - this command creates plan.md directly
+- **Reads spec first** - plan is based on spec requirements
+- **Idempotent** - running again updates existing plan (ask before overwriting)
