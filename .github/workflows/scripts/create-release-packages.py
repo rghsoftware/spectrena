@@ -51,25 +51,8 @@ def create_agent_package(agent: str, script_type: str, version: str, output_dir:
     if memory_src.exists():
         shutil.copytree(memory_src, spectrena_dir / "memory")
 
-    # Copy scripts/ (only the relevant script type)
-    scripts_src = Path("scripts")
-    if scripts_src.exists():
-        scripts_dest = spectrena_dir / "scripts"
-        scripts_dest.mkdir(parents=True, exist_ok=True)
-
-        if script_type == "sh":
-            bash_src = scripts_src / "bash"
-            if bash_src.exists():
-                shutil.copytree(bash_src, scripts_dest / "bash")
-        elif script_type == "ps":
-            ps_src = scripts_src / "powershell"
-            if ps_src.exists():
-                shutil.copytree(ps_src, scripts_dest / "powershell")
-
-        # Copy top-level script files
-        for item in scripts_src.iterdir():
-            if item.is_file():
-                shutil.copy2(item, scripts_dest / item.name)
+    # NOTE: scripts/ no longer copied - slash commands now work directly
+    # without bash script dependencies (see SPECTRENA-PATCH-005)
 
     # Copy templates/ (excluding commands/)
     templates_src = Path("templates")
