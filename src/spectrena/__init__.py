@@ -1477,11 +1477,6 @@ def init(
         "--github-token",
         help="GitHub token to use for API requests (or set GH_TOKEN or GITHUB_TOKEN environment variable)",
     ),
-    from_discovery: bool = typer.Option(
-        False,
-        "--from-discovery",
-        help="Load configuration from .spectrena/discovery.md",
-    ),
     spec_format: str | None = typer.Option(
         None,
         "--spec-format",
@@ -1769,21 +1764,10 @@ def init(
 
     # Initialize Spectrena configuration
     from spectrena.config import Config, run_config_wizard
-    from spectrena.discover import load_discovery_recommendations
 
     config = Config()
 
-    if from_discovery:
-        # Load recommendations from .spectrena/discovery.md
-        recs = load_discovery_recommendations(
-            project_path / ".spectrena" / "discovery.md"
-        )
-        if recs.get("template"):
-            config.spec_id.template = recs["template"]
-        if recs.get("components"):
-            config.spec_id.components = recs["components"]
-        console.print("[cyan]✓ Loaded configuration from discovery.md[/cyan]")
-    elif spec_format or components or project_prefix:
+    if spec_format or components or project_prefix:
         # Apply explicit config options
         FORMAT_MAP = {
             "simple": "{NNN}-{slug}",
