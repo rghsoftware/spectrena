@@ -1,59 +1,282 @@
 ---
-description: Ask clarifying questions about current spec
-arguments: []
+description: Identify underspecified areas in the current feature spec by asking up to 5 highly targeted clarification questions and encoding answers back into the spec.
+handoffs:
+  - label: Build Technical Plan
+    agent: spectrena.plan
+    prompt: Create a plan for the spec.
 ---
 
-# Clarify
+## User Input
 
-Analyze current spec and ask clarifying questions to fill gaps.
-
-## Usage
-
-```
-/spectrena.clarify
+```text
+$ARGUMENTS
 ```
 
-## Behavior
+You **MUST** consider the user input before proceeding (if not empty).
 
-1. Detect current spec from branch `spec/{SPEC-ID}`
-2. **Git: Ensure on spec branch:**
-   ```bash
-   git checkout spec/{SPEC-ID}
-   ```
-3. Read `specs/{SPEC-ID}/spec.md`
-4. Identify gaps or ambiguities:
-   - Vague requirements
-   - Missing acceptance criteria
-   - Undefined edge cases
-   - Unclear dependencies
-5. Ask focused questions
-6. Update spec.md with answers
-7. **Git: Commit updates:**
-   ```bash
-   git add specs/{SPEC-ID}/spec.md
-   git commit -m "spec({SPEC-ID}): Clarify requirements"
-   ```
+## Outline
 
-## Example
+Goal: Detect and reduce ambiguity or missing decision points in the active feature specification and record the clarifications directly in the spec file.
 
+Note: This clarification workflow is expected to run (and be completed) BEFORE invoking `/spectrena.plan`. If the user explicitly states they are skipping clarification (e.g., exploratory spike), you may proceed, but must warn that downstream rework risk increases.
+
+## Execution Steps
+
+### 1. Environment Detection
+
+Detect the current spec:
+
+```bash
+# Get current branch
+BRANCH=$(git branch --show-current)
+
+# Extract SPEC-ID from branch name (spec/{SPEC-ID})
+if [[ "$BRANCH" == spec/* ]]; then
+    SPEC_ID="${BRANCH#spec/}"
+    SPEC_DIR="specs/${SPEC_ID}"
+    SPEC_FILE="${SPEC_DIR}/spec.md"
+else
+    # Not on a spec branch - try to find from current directory
+    # or prompt user to specify
+fi
 ```
-User: /spectrena.clarify
 
-Claude: Current branch: spec/CORE-001-oauth-login
-Reading specs/CORE-001-oauth-login/spec.md...
+If not on a spec branch and can't detect spec:
+- List available specs in `specs/` directory
+- Ask user which spec to clarify
+- Checkout the spec branch: `git checkout spec/{SPEC-ID}`
 
-I have a few questions to clarify the spec:
+If spec file doesn't exist, instruct user to run `/spectrena.specify` first.
 
-1. **Session Duration**: How long should sessions last before requiring re-auth?
-2. **Error Handling**: What should happen if OAuth provider is down?
-3. **Account Linking**: Can users link multiple OAuth providers to one account?
+### 2. Ambiguity & Coverage Scan
 
-User: 7 days, show friendly error with retry, yes allow linking
+Load the current spec file. Perform a structured ambiguity & coverage scan using this taxonomy. For each category, mark status: **Clear** / **Partial** / **Missing**. Produce an internal coverage map used for prioritization (do not output raw map unless no questions will be asked).
 
-Claude: [updates spec.md with clarified requirements]
+#### Functional Scope & Behavior
+- Core user goals & success criteria
+- Explicit out-of-scope declarations
+- User roles / personas differentiation
 
-$ git add specs/CORE-001-oauth-login/spec.md
-$ git commit -m "spec(CORE-001-oauth-login): Clarify requirements"
+#### Domain & Data Model
+- Entities, attributes, relationships
+- Identity & uniqueness rules
+- Lifecycle/state transitions
+- Data volume / scale assumptions
 
-Updated specs/CORE-001-oauth-login/spec.md
+#### Interaction & UX Flow
+- Critical user journeys / sequences
+- Error/empty/loading states
+- Accessibility or localization notes
+
+#### Non-Functional Quality Attributes
+- Performance (latency, throughput targets)
+- Scalability (horizontal/vertical, limits)
+- Reliability & availability (uptime, recovery expectations)
+- Observability (logging, metrics, tracing signals)
+- Security & privacy (authN/Z, data protection, threat assumptions)
+- Compliance / regulatory constraints (if any)
+
+#### Integration & External Dependencies
+- External services/APIs and failure modes
+- Data import/export formats
+- Protocol/versioning assumptions
+
+#### Edge Cases & Failure Handling
+- Negative scenarios
+- Rate limiting / throttling
+- Conflict resolution (e.g., concurrent edits)
+
+#### Constraints & Tradeoffs
+- Technical constraints (language, storage, hosting)
+- Explicit tradeoffs or rejected alternatives
+
+#### Terminology & Consistency
+- Canonical glossary terms
+- Avoided synonyms / deprecated terms
+
+#### Completion Signals
+- Acceptance criteria testability
+- Measurable Definition of Done style indicators
+
+#### Misc / Placeholders
+- TODO markers / unresolved decisions
+- Ambiguous adjectives ("robust", "intuitive") lacking quantification
+
+For each category with **Partial** or **Missing** status, add a candidate question opportunity unless:
+- Clarification would not materially change implementation or validation strategy
+- Information is better deferred to planning phase (note internally)
+
+### 3. Question Generation
+
+Generate (internally) a prioritized queue of candidate clarification questions (maximum 5). Do NOT output them all at once. Apply these constraints:
+
+- Maximum of 10 total questions across the whole session.
+- Each question must be answerable with EITHER:
+   - A short multiple-choice selection (2–5 distinct, mutually exclusive options), OR
+   - A one-word / short-phrase answer (explicitly constrain: "Answer in <=5 words").
+- Only include questions whose answers materially impact architecture, data modeling, task decomposition, test design, UX behavior, operational readiness, or compliance validation.
+- Ensure category coverage balance: attempt to cover the highest impact unresolved categories first; avoid asking two low-impact questions when a single high-impact area (e.g., security posture) is unresolved.
+- Exclude questions already answered, trivial stylistic preferences, or plan-level execution details (unless blocking correctness).
+- Favor clarifications that reduce downstream rework risk or prevent misaligned acceptance tests.
+- If more than 5 categories remain unresolved, select the top 5 by (Impact × Uncertainty) heuristic.
+
+### 4. Sequential Questioning Loop (Interactive)
+
+Present **EXACTLY ONE** question at a time.
+
+#### For Multiple-Choice Questions
+
+**Analyze all options** and determine the **most suitable option** based on:
+- Best practices for the project type
+- Common patterns in similar implementations
+- Risk reduction (security, performance, maintainability)
+- Alignment with any explicit project goals or constraints visible in the spec
+
+Present your **recommended option prominently** at the top with clear reasoning (1-2 sentences explaining why this is the best choice).
+
+Format as: `**Recommended:** Option [X] - <reasoning>`
+
+Then render all options as a Markdown table:
+
+| Option | Description |
+|--------|-------------|
+| A | \<Option A description\> |
+| B | \<Option B description\> |
+| C | \<Option C description\> (add D/E as needed up to 5) |
+| Short | Provide a different short answer (<=5 words) (Include only if free-form alternative is appropriate) |
+
+After the table, add: `You can reply with the option letter (e.g., "A"), accept the recommendation by saying "yes" or "recommended", or provide your own short answer.`
+
+#### For Short-Answer Style (No Meaningful Discrete Options)
+
+Provide your **suggested answer** based on best practices and context.
+
+Format as: `**Suggested:** <your proposed answer> - <brief reasoning>`
+
+Then output: `Format: Short answer (<=5 words). You can accept the suggestion by saying "yes" or "suggested", or provide your own answer.`
+
+#### After User Answers
+
+- If the user replies with "yes", "recommended", or "suggested", use your previously stated recommendation/suggestion as the answer.
+- Otherwise, validate the answer maps to one option or fits the <=5 word constraint.
+- If ambiguous, ask for a quick disambiguation (count still belongs to same question; do not advance).
+- Once satisfactory, record it in working memory (do not yet write to disk) and move to the next queued question.
+
+#### Stop Conditions
+
+Stop asking further questions when:
+- All critical ambiguities resolved early (remaining queued items become unnecessary), OR
+- User signals completion ("done", "good", "no more"), OR
+- You reach 5 asked questions.
+
+Never reveal future queued questions in advance.
+
+If no valid questions exist at start, immediately report no critical ambiguities.
+
+### 5. Incremental Spec Integration
+
+After EACH accepted answer, update the spec immediately:
+
+Maintain in-memory representation of the spec (loaded once at start) plus the raw file contents.
+
+#### First Answer Setup
+
+For the first integrated answer in this session:
+- Ensure a `## Clarifications` section exists (create it just after the highest-level contextual/overview section per the spec template if missing).
+- Under it, create (if not present) a `### Session YYYY-MM-DD` subheading for today.
+
+#### Record Each Answer
+
+Append a bullet line immediately after acceptance: `- Q: <question> → A: <final answer>`.
+
+#### Apply Clarification to Spec
+
+Then immediately apply the clarification to the most appropriate section(s):
+
+| Clarification Type | Target Section |
+|--------------------|----------------|
+| Functional ambiguity | Update or add bullet in Functional Requirements |
+| User interaction / actor distinction | Update User Stories or Actors subsection with clarified role, constraint, or scenario |
+| Data shape / entities | Update Data Model (add fields, types, relationships) preserving ordering; note added constraints succinctly |
+| Non-functional constraint | Add/modify measurable criteria in Non-Functional / Quality Attributes section (convert vague adjective to metric or explicit target) |
+| Edge case / negative flow | Add new bullet under Edge Cases / Error Handling (or create such subsection if template provides placeholder) |
+| Terminology conflict | Normalize term across spec; retain original only if necessary by adding `(formerly referred to as "X")` once |
+
+#### Update Rules
+
+- If the clarification invalidates an earlier ambiguous statement, **replace** that statement instead of duplicating; leave no obsolete contradictory text.
+- **Save the spec file AFTER each integration** to minimize risk of context loss (atomic overwrite).
+- Preserve formatting: do not reorder unrelated sections; keep heading hierarchy intact.
+- Keep each inserted clarification minimal and testable (avoid narrative drift).
+
+### 6. Validation
+
+Performed after EACH write plus final pass:
+
+- [ ] Clarifications session contains exactly one bullet per accepted answer (no duplicates)
+- [ ] Total asked (accepted) questions ≤ 5
+- [ ] Updated sections contain no lingering vague placeholders the new answer was meant to resolve
+- [ ] No contradictory earlier statement remains (scan for now-invalid alternative choices removed)
+- [ ] Markdown structure valid; only allowed new headings: `## Clarifications`, `### Session YYYY-MM-DD`
+- [ ] Terminology consistency: same canonical term used across all updated sections
+
+### 7. Git Commit
+
+After all questions answered or early termination:
+
+```bash
+git add specs/${SPEC_ID}/spec.md
+git commit -m "spec(${SPEC_ID}): Clarify requirements - ${N} questions resolved"
 ```
+
+### 8. Completion Report
+
+After questioning loop ends or early termination, output:
+
+```markdown
+---
+## Clarification Complete
+
+**Questions:** {N} asked & answered
+**Spec:** `specs/{SPEC_ID}/spec.md`
+
+### Sections Updated
+- [List section names touched]
+
+### Coverage Summary
+
+| Category | Status |
+|----------|--------|
+| Functional Scope | Resolved / Clear / Deferred / Outstanding |
+| Domain & Data Model | ... |
+| Interaction & UX | ... |
+| Non-Functional | ... |
+| Integration | ... |
+| Edge Cases | ... |
+| Constraints | ... |
+| Terminology | ... |
+| Completion Signals | ... |
+
+**Status Key:**
+- **Resolved** - Was Partial/Missing, now addressed
+- **Clear** - Already sufficient
+- **Deferred** - Exceeds question quota or better suited for planning phase
+- **Outstanding** - Still Partial/Missing but low impact
+
+### Recommendation
+[If any Outstanding or Deferred remain, recommend whether to proceed to `/spectrena.plan` or run `/spectrena.clarify` again later post-plan]
+
+**Suggested next:** `/spectrena.plan`
+```
+
+## Behavior Rules
+
+- If no meaningful ambiguities found (or all potential questions would be low-impact), respond: "No critical ambiguities detected worth formal clarification." and suggest proceeding.
+- If spec file missing, instruct user to run `/spectrena.specify` first (do not create a new spec here).
+- Never exceed 5 total asked questions (clarification retries for a single question do not count as new questions).
+- Avoid speculative tech stack questions unless the absence blocks functional clarity.
+- Respect user early termination signals ("stop", "done", "proceed").
+- If no questions asked due to full coverage, output a compact coverage summary (all categories Clear) then suggest advancing.
+- If quota reached with unresolved high-impact categories remaining, explicitly flag them under Deferred with rationale.
+
+Context for prioritization: {ARGS}
