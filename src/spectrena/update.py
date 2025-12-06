@@ -7,13 +7,21 @@ import hashlib
 import shutil
 import json
 import difflib
+import tempfile
+import zipfile
+import io
 from typing import Optional
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
 import typer
 
 console = Console()
+
+# GitHub repository for template downloads
+GITHUB_REPO_OWNER = "rghsoftware"
+GITHUB_REPO_NAME = "spectrena"
 
 
 class UpdateAction(Enum):
@@ -328,6 +336,189 @@ def save_version(project_path: Path, version: str) -> None:
     version_file.write_text(version)
 
 
+def get_latest_version() -> str:
+    """Fetch latest release version from GitHub."""
+    import urllib.request
+    import ssl
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases/latest"
+
+    try:
+        # Create SSL context
+        context = ssl.create_default_context()
+
+        request = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "spectrena-cli",
+            }
+        )
+
+        with urllib.request.urlopen(request, timeout=30, context=context) as response:
+            data = json.loads(response.read().decode())
+            tag = data.get("tag_name", "")
+            # Strip 'v' prefix if present
+            return tag.lstrip("v") if tag else "latest"
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            console.print("[yellow]Warning:[/yellow] No releases found, using 'latest' tag")
+        else:
+            console.print(f"[yellow]Warning:[/yellow] Could not fetch latest version: HTTP {e.code}")
+        return "latest"
+    except Exception as e:
+        console.print(f"[yellow]Warning:[/yellow] Could not fetch latest version: {e}")
+        return "latest"
+
+
+def detect_agent_and_script(project_path: Path) -> tuple[str, str]:
+    """Detect which AI agent and script type the project uses."""
+    # Agent detection based on folder presence
+    agent = "claude"  # default
+    agent_folders = {
+        ".claude": "claude",
+        ".cursor": "cursor-agent",
+        ".github": "copilot",
+        ".gemini": "gemini",
+        ".qwen": "qwen",
+        ".opencode": "opencode",
+        ".codex": "codex",
+        ".windsurf": "windsurf",
+        ".kilocode": "kilocode",
+        ".augment": "auggie",
+        ".codebuddy": "codebuddy",
+        ".roo": "roo",
+        ".amazonq": "q",
+        ".agents": "amp",
+        ".shai": "shai",
+        ".bob": "bob",
+    }
+
+    for folder, agent_name in agent_folders.items():
+        if (project_path / folder).exists():
+            # Check if it has commands folder (indicates it's the primary agent)
+            commands_path = project_path / folder / "commands"
+            if commands_path.exists() or folder == ".github":
+                agent = agent_name
+                break
+
+    # Script type detection
+    script_type = "sh"  # default
+    scripts_dir = project_path / ".spectrena" / "scripts"
+    if scripts_dir.exists():
+        if (scripts_dir / "powershell").exists():
+            script_type = "ps"
+        elif (scripts_dir / "bash").exists():
+            script_type = "sh"
+
+    return agent, script_type
+
+
+def download_template(
+    version: str,
+    dest_path: Path,
+    agent: str = "claude",
+    script_type: str = "sh",
+) -> None:
+    """Download template files from GitHub release."""
+    import urllib.request
+    import ssl
+
+    # Construct download URL
+    pattern = f"spectrena-template-{agent}-{script_type}"
+
+    if version == "latest":
+        base_url = f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases/latest/download"
+    else:
+        base_url = f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases/download/v{version}"
+
+    url = f"{base_url}/{pattern}.zip"
+
+    console.print(f"  [dim]Downloading from {url}[/dim]")
+
+    context = ssl.create_default_context()
+
+    try:
+        request = urllib.request.Request(
+            url,
+            headers={"User-Agent": "spectrena-cli"}
+        )
+
+        with urllib.request.urlopen(request, timeout=120, context=context) as response:
+            total_size = int(response.headers.get("content-length", 0))
+            zip_data = io.BytesIO()
+
+            if total_size > 0:
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                    console=console,
+                ) as progress:
+                    task = progress.add_task("Downloading...", total=total_size)
+                    while True:
+                        chunk = response.read(8192)
+                        if not chunk:
+                            break
+                        zip_data.write(chunk)
+                        progress.update(task, advance=len(chunk))
+            else:
+                zip_data.write(response.read())
+
+        # Extract to destination
+        dest_path.mkdir(parents=True, exist_ok=True)
+        zip_data.seek(0)
+
+        with zipfile.ZipFile(zip_data, 'r') as zf:
+            # Extract all files, stripping top-level directory if present
+            namelist = zf.namelist()
+
+            # Detect if there's a single top-level directory
+            top_dirs = set()
+            for name in namelist:
+                parts = name.split('/')
+                if len(parts) > 1:
+                    top_dirs.add(parts[0])
+
+            strip_prefix = ""
+            if len(top_dirs) == 1:
+                strip_prefix = list(top_dirs)[0] + "/"
+
+            for member in namelist:
+                # Skip directories
+                if member.endswith('/'):
+                    continue
+
+                # Strip leading directory if needed
+                if strip_prefix and member.startswith(strip_prefix):
+                    relative_path = member[len(strip_prefix):]
+                else:
+                    relative_path = member
+
+                if not relative_path:
+                    continue
+
+                # Extract file
+                target = dest_path / relative_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+
+                with zf.open(member) as src, open(target, 'wb') as dst:
+                    dst.write(src.read())
+
+        console.print(f"  [green]✓[/green] Downloaded template")
+
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            console.print(f"[red]Error:[/red] Version {version} not found for {agent}-{script_type}")
+            console.print(f"Check available versions: https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases")
+        else:
+            console.print(f"[red]Error:[/red] Download failed: HTTP {e.code}")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] Download failed: {e}")
+        raise typer.Exit(1)
+
+
 def run_update(
     version: Optional[str] = None,
     dry_run: bool = False,
@@ -346,40 +537,72 @@ def run_update(
     current_version = get_current_version(project_path)
 
     console.print(Panel(
-        f"[cyan]Spectrena Update[/cyan]\n"
+        f"[bold]Spectrena Update[/bold]\n"
         f"Current version: {current_version}",
         title="Update",
         border_style="cyan"
     ))
 
-    # For now, this is a placeholder implementation
-    # In a real implementation, we would:
-    # 1. Download new template from GitHub release
-    # 2. Create update plan
-    # 3. Apply updates
+    # Detect agent and script type from existing project
+    agent, script_type = detect_agent_and_script(project_path)
+    console.print(f"[dim]Detected: {agent} + {script_type}[/dim]")
 
-    new_version = version or "latest"
-    console.print(f"\n[yellow]Note:[/yellow] Full update implementation requires:")
-    console.print("  1. Template download from GitHub releases")
-    console.print("  2. Integration with existing init download logic")
-    console.print("  3. Version resolution (latest vs specific)")
-    console.print()
-    console.print("[dim]This is a framework implementation.[/dim]")
+    # Resolve target version
+    if version:
+        target_version = version
+    else:
+        console.print("[cyan]Fetching latest version...[/cyan]")
+        target_version = get_latest_version()
 
-    # Example of what the full implementation would look like:
-    # new_template_path = download_template(version)
-    # plan = create_update_plan(project_path, new_template_path, current_version, new_version)
-    # display_update_plan(plan)
-    #
-    # if dry_run:
-    #     console.print("\n[yellow]Dry run - no changes made[/yellow]")
-    #     return
-    #
-    # if not force:
-    #     if not typer.confirm("Apply updates?"):
-    #         console.print("[yellow]Cancelled[/yellow]")
-    #         return
-    #
-    # apply_update_plan(plan, project_path, new_template_path)
-    # save_version(project_path, new_version)
-    # console.print("\n[green]Update complete![/green]")
+    if target_version == current_version and not force:
+        console.print(f"[green]✓[/green] Already at version {current_version}")
+        return
+
+    console.print(f"Target version: {target_version}")
+
+    # Download new template to temp directory
+    with tempfile.TemporaryDirectory() as temp_dir:
+        new_template_path = Path(temp_dir) / "template"
+
+        console.print(f"\n[cyan]Downloading template...[/cyan]")
+        download_template(target_version, new_template_path, agent, script_type)
+
+        # Create update plan
+        console.print(f"[cyan]Analyzing changes...[/cyan]")
+        plan = create_update_plan(
+            project_path,
+            new_template_path,
+            current_version,
+            target_version,
+        )
+
+        # Show plan
+        display_update_plan(plan)
+
+        if dry_run:
+            console.print("\n[yellow]Dry run - no changes made[/yellow]")
+            return
+
+        if plan.update_count == 0 and plan.add_count == 0 and plan.merge_count == 0:
+            console.print("\n[green]✓[/green] No updates needed")
+            save_version(project_path, target_version)
+            return
+
+        if not force:
+            console.print("")
+            if not typer.confirm("Apply updates?"):
+                console.print("[yellow]Cancelled[/yellow]")
+                return
+
+        # Apply updates
+        console.print(f"\n[cyan]Applying updates...[/cyan]")
+        apply_update_plan(plan, project_path, new_template_path)
+
+        # Save new version
+        save_version(project_path, target_version)
+
+    console.print(f"\n[green]✓ Updated to version {target_version}[/green]")
+
+    if plan.merge_count > 0:
+        console.print(f"\n[yellow]Note:[/yellow] {plan.merge_count} files need manual review")
+        console.print("Run [cyan]/spectrena.review-updates[/cyan] to merge changes")
