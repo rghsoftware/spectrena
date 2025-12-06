@@ -1962,6 +1962,54 @@ def check():
     tracker.add("code-insiders", "Visual Studio Code Insiders")
     _ = check_tool("code-insiders", tracker=tracker)
 
+    # Check git CLIs for PR/MR creation
+    # Try to load config to check which provider is configured
+    try:
+        from spectrena.config import Config
+
+        config = Config.load()
+        provider = config.git.provider
+
+        if provider == "github":
+            tracker.add("gh", "GitHub CLI")
+            gh_found = check_tool("gh", tracker=tracker)
+            if gh_found:
+                # Check if authenticated
+                try:
+                    result = subprocess.run(
+                        ["gh", "auth", "status"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if result.returncode != 0:
+                        tracker.skip("gh", "not authenticated")
+                except Exception:
+                    pass
+        elif provider == "gitlab":
+            tracker.add("glab", "GitLab CLI")
+            glab_found = check_tool("glab", tracker=tracker)
+            if glab_found:
+                # Check if authenticated
+                try:
+                    result = subprocess.run(
+                        ["glab", "auth", "status"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if result.returncode != 0:
+                        tracker.skip("glab", "not authenticated")
+                except Exception:
+                    pass
+        else:
+            # Provider is "other", no CLI needed
+            tracker.add("git-cli", "Git CLI")
+            tracker.skip("git-cli", f"provider={provider}, no CLI needed")
+    except Exception:
+        # Config not found or error loading - skip git CLI check
+        pass
+
     console.print(tracker.render())
 
     console.print("\n[bold green]Spectrena CLI is ready to use![/bold green]")
