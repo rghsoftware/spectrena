@@ -75,6 +75,15 @@ class LineageConfig:
 
 
 @dataclass
+class BacklogConfig:
+    """Spec backlog configuration."""
+
+    enabled: bool = False
+    path: str = ".spectrena/backlog.md"
+    reference_docs: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class WorkflowConfig:
     require_component_flag: bool = True
     validate_components: bool = True
@@ -87,6 +96,7 @@ class Config:
 
     spec_id: SpecIdConfig = field(default_factory=SpecIdConfig)
     lineage: LineageConfig = field(default_factory=LineageConfig)
+    backlog: BacklogConfig = field(default_factory=BacklogConfig)
     workflow: WorkflowConfig = field(default_factory=WorkflowConfig)
 
     @classmethod
@@ -130,6 +140,17 @@ class Config:
             if auto_reg:
                 config.lineage.auto_register = auto_reg.lower() == "true"
 
+        # Parse backlog section
+        backlog_enabled = _yaml_get(content, "backlog", "enabled")
+        if backlog_enabled:
+            config.backlog.enabled = backlog_enabled.lower() == "true"
+        if config.backlog.enabled:
+            backlog_path = _yaml_get(content, "backlog", "path")
+            if backlog_path:
+                config.backlog.path = backlog_path
+            # Parse reference_docs dictionary
+            config.backlog.reference_docs = _yaml_get_dict(content, "backlog", "reference_docs")
+
         return config
 
     def save(self, project_dir: Optional[Path] = None):
@@ -172,6 +193,22 @@ class Config:
                 ]
             )
 
+        # Add backlog section
+        lines.extend(
+            [
+                "",
+                "backlog:",
+                f"  enabled: {str(self.backlog.enabled).lower()}",
+            ]
+        )
+
+        if self.backlog.enabled:
+            lines.append(f'  path: "{self.backlog.path}"')
+            if self.backlog.reference_docs:
+                lines.append("  reference_docs:")
+                for abbrev, path in self.backlog.reference_docs.items():
+                    lines.append(f'    {abbrev}: "{path}"')
+
         return "\n".join(lines) + "\n"
 
 
@@ -208,6 +245,31 @@ def _yaml_get_array(content: str, parent: str, key: str) -> list[str]:
                 match = re.match(r"^\s+-\s*(.+)$", line)
                 if match:
                     result.append(match.group(1).strip().strip('"').strip("'"))
+    return result
+
+
+def _yaml_get_dict(content: str, parent: str, key: str) -> dict[str, str]:
+    """Parse a dictionary from YAML content."""
+    result, in_section, in_dict = {}, False, False
+    for line in content.split("\n"):
+        if re.match(rf"^{parent}:\s*$", line):
+            in_section = True
+            continue
+        if in_section and line and not line[0].isspace():
+            in_section = in_dict = False
+        if in_section:
+            if re.match(rf"^\s+{key}:\s*$", line):
+                in_dict = True
+                continue
+            if in_dict and re.match(r"^\s+[a-z_]+:", line):
+                in_dict = False
+            if in_dict:
+                # Match key: value pairs with proper indentation (4 spaces for nested dict)
+                match = re.match(r"^\s{4}([A-Z_]+):\s*(.+)$", line)
+                if match:
+                    dict_key = match.group(1).strip()
+                    dict_val = match.group(2).strip().strip('"').strip("'")
+                    result[dict_key] = dict_val
     return result
 
 
@@ -369,6 +431,101 @@ def run_config_wizard(project_dir: Optional[Path] = None) -> Config:
         console.print("[dim]Install with: pip install spectrena[lineage-surreal][/dim]")
         config.lineage.enabled = False
 
+    # === BACKLOG CONFIGURATION ===
+    console.clear()
+    console.print(
+        Panel(
+            "[cyan]Spec Backlog[/cyan]\n\n"
+            "[bold]What is a spec backlog?[/]\n"
+            "Pre-define specs with scope, dependencies, and references.\n"
+            "Pull context automatically when starting a spec.\n\n"
+            "[bold]Benefits:[/]\n"
+            "  • Ordered implementation plan\n"
+            "  • Dependency tracking between specs\n"
+            "  • Reference docs linked to specs\n"
+            "  • Complexity weighting (LIGHTWEIGHT/STANDARD/FORMAL)\n",
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
+
+    import typer
+
+    enable_backlog = typer.confirm("Enable spec backlog?", default=False)
+
+    if enable_backlog:
+        config.backlog.enabled = True
+
+        # Ask for backlog location
+        console.print("\n[dim]Where should the backlog file be located?[/dim]")
+        backlog_choices = {
+            "1": (".spectrena/backlog.md", ".spectrena/backlog.md (default)"),
+            "2": ("docs/spec-backlog.md", "docs/spec-backlog.md"),
+            "3": ("custom", "Custom path"),
+        }
+
+        console.print("  [cyan]1[/cyan] .spectrena/backlog.md (default)")
+        console.print("  [cyan]2[/cyan] docs/spec-backlog.md")
+        console.print("  [cyan]3[/cyan] Custom path")
+
+        choice = console.input("\n[bold]Choice (1-3):[/] ").strip() or "1"
+
+        if choice in backlog_choices:
+            backlog_path = backlog_choices[choice][0]
+            if backlog_path == "custom":
+                backlog_path = console.input("[bold]Enter backlog path:[/] ").strip()
+        else:
+            backlog_path = ".spectrena/backlog.md"
+
+        config.backlog.path = backlog_path
+
+        # Create backlog from template if doesn't exist
+        if project_dir:
+            import shutil
+
+            backlog_file = project_dir / backlog_path
+            if not backlog_file.exists():
+                # Look for template in templates directory
+                template_path = project_dir / "templates" / "backlog-template.md"
+                if not template_path.exists():
+                    # Also check .spectrena/templates
+                    template_path = project_dir / ".spectrena" / "templates" / "backlog-template.md"
+
+                if template_path.exists():
+                    backlog_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy(template_path, backlog_file)
+                    console.print(f"[green]✓ Created {backlog_path}[/green]")
+
+        # Ask about reference docs
+        console.print("\n[dim]Reference doc abbreviations (optional):[/dim]")
+        console.print("[dim]Format: ABBREV=path (e.g., REQ=docs/requirements.md)[/dim]")
+        console.print("[dim]Press Enter without typing to finish[/dim]\n")
+
+        while True:
+            ref = console.input("[bold]Add reference (or Enter to finish):[/] ").strip()
+            if not ref:
+                break
+            if "=" in ref:
+                abbrev, path = ref.split("=", 1)
+                config.backlog.reference_docs[abbrev.strip().upper()] = path.strip()
+                console.print(f"[green]✓ Added {abbrev.strip().upper()}[/green]")
+            else:
+                console.print("[yellow]Invalid format. Use: ABBREV=path[/yellow]")
+
+        console.print("[green]✓ Backlog enabled[/green]")
+    else:
+        config.backlog.enabled = False
+        console.print("[dim]Backlog disabled[/dim]")
+
     config.save(project_dir)
-    console.print("[green]✓ Configuration saved[/]")
+    console.print("\n[green]✓ Configuration saved[/]")
+
+    # Create .spectrena/.gitignore if needed
+    if project_dir and (config.lineage.enabled or config.backlog.enabled):
+        gitignore_path = project_dir / ".spectrena" / ".gitignore"
+        if not gitignore_path.exists():
+            gitignore_content = "# Lineage database (generated)\nlineage/\n"
+            gitignore_path.write_text(gitignore_content)
+            console.print("[green]✓ Created .spectrena/.gitignore[/]")
+
     return config
