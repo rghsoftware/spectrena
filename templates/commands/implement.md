@@ -31,12 +31,17 @@ Execute implementation for a specific task or next uncompleted task.
    - Create/modify files as specified
    - Follow spec requirements
    - Write tests if applicable
-6. Mark task complete in `tasks.md` (change `- [ ]` to `- [x]`)
-7. **Git: Stage all changes and commit:**
+6. **After implementation is complete:**
+
+   - Mark task complete in `tasks.md` (change `- [ ]` to `- [x]`)
+   - **Immediately** stage and commit ALL changes together:
+
    ```bash
-   git add .
+   git add -A
    git commit -m "feat({SPEC-ID}): [task description]"
    ```
+
+   ⚠ **CRITICAL**: The `tasks.md` update MUST be included in the same commit as the implementation. Never commit code changes without also committing the task status update
 
 ## Commit Message Format
 
