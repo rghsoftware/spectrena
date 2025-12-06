@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2025-12-06
+
+### Added
+
+- **Complete Update Command Implementation** - Full implementation of `spectrena update` command with GitHub API integration, automatic version detection, template downloading, and file categorization logic
+
+### Changed
+
+- Enhanced update command now supports `--version`, `--dry-run`, and `--force` flags for flexible update workflows
+- Update command now auto-detects project agent and script type from `.spectrena/config.yml`
+
 ## [1.3.0] - 2025-12-06
 
 ### Added
@@ -140,7 +151,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Scripts | Bash + PowerShell | Pure Python |
 | Windows | Via PowerShell | Native |
 
-[Unreleased]: https://github.com/rghsoftware/spectrena/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/rghsoftware/spectrena/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/rghsoftware/spectrena/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/rghsoftware/spectrena/compare/v1.0.1...v1.3.0
 [1.0.1]: https://github.com/rghsoftware/spectrena/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/rghsoftware/spectrena/releases/tag/v1.0.0
