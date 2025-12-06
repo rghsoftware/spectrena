@@ -602,6 +602,27 @@ def run_update(
         # Save new version
         save_version(project_path, target_version)
 
+    # Check and run database migrations if lineage is enabled
+    lineage_db_path = project_path / ".spectrena" / "lineage.db"
+    if lineage_db_path.exists():
+        console.print("\n[cyan]Checking database schema...[/cyan]")
+        try:
+            import asyncio
+            from spectrena.lineage.db import LineageDB
+
+            async def run_migrations():
+                db = LineageDB(lineage_db_path)
+                async with db.connect(run_migrations=True) as _:
+                    pass  # Migrations run automatically on connect
+
+            asyncio.run(run_migrations())
+            console.print("[green]✓[/green] Database schema up to date")
+        except ImportError:
+            console.print("[dim]Lineage DB found but surrealdb not installed - skipping migration[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Warning:[/yellow] Database migration check failed: {e}")
+            console.print("[dim]Run 'spectrena db migrate' manually if needed[/dim]")
+
     console.print(f"\n[green]✓ Updated to version {target_version}[/green]")
 
     if plan.merge_count > 0:

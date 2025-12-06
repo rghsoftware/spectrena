@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Lineage DB Check in `spectrena check`** - Now verifies lineage database schema version when present, showing migration status
+- **Automatic Migration in `spectrena update`** - Database migrations now run automatically after file updates if lineage DB exists
+
 ## [1.3.2] - 2025-12-06
 
 ### Fixed
