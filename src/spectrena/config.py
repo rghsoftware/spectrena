@@ -91,6 +91,23 @@ class WorkflowConfig:
 
 
 @dataclass
+class GitConfig:
+    """Git provider configuration."""
+
+    provider: str = "github"  # github, gitlab, other
+    default_branch: str = "main"
+    auto_delete_branch: bool = True
+    pr_template: Optional[str] = None
+
+    def __post_init__(self):
+        valid_providers = ("github", "gitlab", "other")
+        if self.provider not in valid_providers:
+            raise ValueError(
+                f"Invalid git provider: {self.provider}. Must be one of {valid_providers}"
+            )
+
+
+@dataclass
 class Config:
     """Project configuration."""
 
@@ -98,6 +115,7 @@ class Config:
     lineage: LineageConfig = field(default_factory=LineageConfig)
     backlog: BacklogConfig = field(default_factory=BacklogConfig)
     workflow: WorkflowConfig = field(default_factory=WorkflowConfig)
+    git: GitConfig = field(default_factory=GitConfig)
 
     @classmethod
     def load(cls, project_dir: Optional[Path] = None) -> "Config":
@@ -150,6 +168,20 @@ class Config:
                 config.backlog.path = backlog_path
             # Parse reference_docs dictionary
             config.backlog.reference_docs = _yaml_get_dict(content, "backlog", "reference_docs")
+
+        # Parse git section
+        git_provider = _yaml_get(content, "git", "provider")
+        if git_provider:
+            config.git.provider = git_provider
+        git_default_branch = _yaml_get(content, "git", "default_branch")
+        if git_default_branch:
+            config.git.default_branch = git_default_branch
+        git_auto_delete = _yaml_get(content, "git", "auto_delete_branch")
+        if git_auto_delete:
+            config.git.auto_delete_branch = git_auto_delete.lower() == "true"
+        git_pr_template = _yaml_get(content, "git", "pr_template")
+        if git_pr_template:
+            config.git.pr_template = git_pr_template
 
         return config
 
@@ -208,6 +240,20 @@ class Config:
                 lines.append("  reference_docs:")
                 for abbrev, path in self.backlog.reference_docs.items():
                     lines.append(f'    {abbrev}: "{path}"')
+
+        # Add git section
+        lines.extend(
+            [
+                "",
+                "git:",
+                f'  provider: "{self.git.provider}"',
+                f'  default_branch: "{self.git.default_branch}"',
+                f"  auto_delete_branch: {str(self.git.auto_delete_branch).lower()}",
+            ]
+        )
+
+        if self.git.pr_template:
+            lines.append(f'  pr_template: "{self.git.pr_template}"')
 
         return "\n".join(lines) + "\n"
 
@@ -516,6 +562,84 @@ def run_config_wizard(project_dir: Optional[Path] = None) -> Config:
     else:
         config.backlog.enabled = False
         console.print("[dim]Backlog disabled[/dim]")
+
+    # === GIT PROVIDER CONFIGURATION ===
+    console.clear()
+    console.print(
+        Panel(
+            "[cyan]Git Provider Configuration[/cyan]\n\n"
+            "[bold]What is this?[/]\n"
+            "Configure how spec branches create pull/merge requests.\n"
+            "This is used by the /spectrena.spec.finish command.\n\n"
+            "[bold]Providers:[/]\n"
+            "  • GitHub - uses gh CLI\n"
+            "  • GitLab - uses glab CLI\n"
+            "  • Other - manual PR/MR creation\n",
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
+
+    import shutil
+
+    provider_choices = {
+        "github": "GitHub (uses gh CLI)",
+        "gitlab": "GitLab (uses glab CLI)",
+        "other": "Other / Manual",
+    }
+
+    # Simple selection without arrow keys - just use the existing menu infrastructure
+    console.print("\n[bold]Git provider:[/bold]")
+    console.print("  [cyan]1[/cyan] GitHub (uses gh CLI)")
+    console.print("  [cyan]2[/cyan] GitLab (uses glab CLI)")
+    console.print("  [cyan]3[/cyan] Other / Manual")
+
+    choice = console.input("\n[bold]Choice (1-3):[/] ").strip() or "1"
+
+    provider_map = {"1": "github", "2": "gitlab", "3": "other"}
+    provider = provider_map.get(choice, "github")
+    config.git.provider = provider
+
+    # Check CLI availability
+    if provider == "github":
+        if not shutil.which("gh"):
+            console.print(
+                "[yellow]⚠ gh CLI not found. Install: https://cli.github.com/[/yellow]"
+            )
+            console.print(
+                "[dim]You can still use spectrena, but PR creation will be manual.[/dim]"
+            )
+    elif provider == "gitlab":
+        if not shutil.which("glab"):
+            console.print(
+                "[yellow]⚠ glab CLI not found. Install: https://gitlab.com/gitlab-org/cli[/yellow]"
+            )
+            console.print(
+                "[dim]You can still use spectrena, but MR creation will be manual.[/dim]"
+            )
+
+    # Default branch
+    default_branch = typer.prompt("Default branch name", default="main")
+    config.git.default_branch = default_branch
+
+    # Auto-delete branch (only for github/gitlab)
+    if provider in ("github", "gitlab"):
+        auto_delete = typer.confirm(
+            "Auto-delete spec branch after merge?", default=True
+        )
+        config.git.auto_delete_branch = auto_delete
+
+    # Custom PR template (optional)
+    if typer.confirm("Use custom PR/MR template?", default=False):
+        template_path = typer.prompt(
+            "Template path", default=".github/PULL_REQUEST_TEMPLATE.md"
+        )
+        if project_dir and (project_dir / template_path).exists():
+            config.git.pr_template = template_path
+        else:
+            console.print(
+                f"[yellow]Template not found at {template_path}, skipping[/yellow]"
+            )
 
     config.save(project_dir)
     console.print("\n[green]✓ Configuration saved[/]")
