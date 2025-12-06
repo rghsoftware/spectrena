@@ -51,6 +51,7 @@ class LineageDB:
 
     db_path: Path
     connection_string: str
+    _migrations_run: bool = False
 
     def __init__(self, db_path: Path | None = None):
         if db_path is None:
@@ -61,10 +62,30 @@ class LineageDB:
         self.connection_string = f"surrealkv://{self.db_path}"
 
     @asynccontextmanager
-    async def connect(self):
-        """Async context manager for database connection."""
+    async def connect(self, run_migrations: bool = True):
+        """Async context manager for database connection.
+
+        Args:
+            run_migrations: Whether to run schema migrations on first connect
+        """
         async with AsyncSurreal(self.connection_string) as db:
             await db.use("spectrena", "lineage")
+
+            # Run migrations on first connection if requested
+            if run_migrations and not self._migrations_run:
+                from spectrena.lineage.migrations import ensure_schema, SchemaVersionError
+                try:
+                    await ensure_schema(db, backup=True)
+                    self._migrations_run = True
+                except SchemaVersionError as e:
+                    # Re-raise schema version errors
+                    raise
+                except Exception as e:
+                    # Log other errors but continue
+                    from rich.console import Console
+                    console = Console()
+                    console.print(f"[yellow]Warning: Migration failed:[/yellow] {e}")
+
             yield db
 
     async def init_schema(self, schema_path: Path):
