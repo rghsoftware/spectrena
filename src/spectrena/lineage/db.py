@@ -9,6 +9,43 @@ from contextlib import asynccontextmanager
 from typing import cast
 
 
+def _record_id(table: str, id: str) -> str:
+    """
+    Generate a safe SurrealDB record ID reference for queries.
+
+    Handles IDs with special characters like dots, spaces, etc.
+
+    Args:
+        table: Table name (e.g., 'task', 'spec', 'commit')
+        id: Record ID (e.g., '3.1', 'CORE-001', 'abc-123')
+
+    Returns:
+        Safe record reference for use in queries.
+
+    Example:
+        _record_id('task', '3.1') -> "type::thing('task', '3.1')"
+    """
+    # Escape single quotes in ID
+    safe_id = id.replace("'", "\\'")
+    return f"type::thing('{table}', '{safe_id}')"
+
+
+def _record_literal(table: str, id: str) -> str:
+    """
+    Generate a record ID literal for CREATE/UPDATE statements.
+
+    Args:
+        table: Table name
+        id: Record ID
+
+    Returns:
+        Record literal like task:`3.1`
+    """
+    # Backtick escape for literals
+    safe_id = id.replace("`", "\\`")
+    return f"{table}:`{safe_id}`"
+
+
 class LineageDB:
     """SurrealDB-backed lineage tracking."""
 
@@ -49,11 +86,11 @@ class LineageDB:
         weight: str = "STANDARD",
     ) -> dict[str, object]:
         """Register a new specification."""
-        record_id = spec_id.replace("-", "_")
+        record = _record_literal("spec", spec_id)
 
         async with self.connect() as db:
             result = await db.create(
-                f"spec:{record_id}",
+                record,
                 {
                     "id": spec_id,
                     "title": title,
@@ -72,13 +109,13 @@ class LineageDB:
         self, from_spec: str, to_spec: str, dependency_type: str = "hard"
     ) -> dict[str, object]:
         """Add spec dependency edge."""
-        from_id = from_spec.replace("-", "_")
-        to_id = to_spec.replace("-", "_")
+        from_record = _record_id("spec", from_spec)
+        to_record = _record_id("spec", to_spec)
 
         async with self.connect() as db:
             result = await db.query(
                 f"""
-                RELATE spec:{from_id}->depends_on->spec:{to_id}
+                RELATE {from_record}->depends_on->{to_record}
                 SET dependency_type = $type
             """,
                 {"type": dependency_type},
@@ -89,7 +126,7 @@ class LineageDB:
 
     async def get_blocked_by(self, spec_id: str) -> list[object]:
         """Get all specs that would be blocked if this spec slips."""
-        record_id = spec_id.replace("-", "_")
+        record = _record_id("spec", spec_id)
 
         async with self.connect() as db:
             result = await db.query(
@@ -97,7 +134,7 @@ class LineageDB:
                 SELECT
                     id, title, status, component
                 FROM spec
-                WHERE ->depends_on->spec CONTAINS spec:{record_id}
+                WHERE ->depends_on->spec CONTAINS {record}
             """
             )
             if isinstance(result, list):
@@ -128,13 +165,13 @@ class LineageDB:
 
     async def start_task(self, task_id: str) -> dict[str, object]:
         """Mark task as active and update phase state."""
-        record_id = task_id.replace("-", "_")
+        record = _record_id("task", task_id)
 
         async with self.connect() as db:
             # Update task status
             _ = await db.query(
                 f"""
-                UPDATE task:{record_id} SET
+                UPDATE {record} SET
                     status = 'active',
                     started_at = time::now()
             """
@@ -144,7 +181,7 @@ class LineageDB:
             _ = await db.query(
                 f"""
                 DELETE current_task WHERE in = phase_state:current;
-                RELATE phase_state:current->current_task->task:{record_id}
+                RELATE phase_state:current->current_task->{record}
             """
             )
 
@@ -166,12 +203,12 @@ class LineageDB:
         self, task_id: str, actual_minutes: int | None = None
     ) -> dict[str, object]:
         """Mark task as completed."""
-        record_id = task_id.replace("-", "_")
+        record = _record_id("task", task_id)
 
         async with self.connect() as db:
             _ = await db.query(
                 f"""
-                UPDATE task:{record_id} SET
+                UPDATE {record} SET
                     status = 'completed',
                     completed_at = time::now(),
                     actual_minutes = $minutes
@@ -191,7 +228,7 @@ class LineageDB:
 
         Returns everything Claude needs to know.
         """
-        record_id = task_id.replace("-", "_")
+        record = _record_id("task", task_id)
 
         async with self.connect() as db:
             result = await db.query(
@@ -203,7 +240,7 @@ class LineageDB:
                     ->task_depends->task.* AS prerequisite_tasks,
                     ->modifies->symbol.* AS target_symbols,
                     ->modifies->symbol->references->symbol.* AS related_symbols
-                FROM task:{record_id}
+                FROM {record}
             """
             )
 
@@ -250,12 +287,14 @@ class LineageDB:
         import uuid
 
         change_id = f"ch_{uuid.uuid4().hex[:8]}"
-        task_record_id = task_id.replace("-", "_")
+        task_record = _record_id("task", task_id)
+        change_record_literal = _record_literal("change", change_id)
+        change_record = _record_id("change", change_id)
 
         async with self.connect() as db:
             # Create change record
             _ = await db.create(
-                f"change:{change_id}",
+                change_record_literal,
                 {
                     "id": change_id,
                     "change_type": change_type,
@@ -269,7 +308,7 @@ class LineageDB:
             # Link to task
             _ = await db.query(
                 f"""
-                RELATE change:{change_id}->performed_in->task:{task_record_id}
+                RELATE {change_record}->performed_in->{task_record}
             """
             )
 
@@ -278,11 +317,13 @@ class LineageDB:
                 symbol_id = (
                     symbol_fqn.replace("::", "_").replace(".", "_").replace("/", "_")
                 )
+                symbol_record_literal = _record_literal("symbol", symbol_id)
+                symbol_record = _record_id("symbol", symbol_id)
 
                 # Create symbol if not exists
                 _ = await db.query(
                     f"""
-                    CREATE symbol:{symbol_id} CONTENT {{
+                    CREATE {symbol_record_literal} CONTENT {{
                         fqn: $fqn,
                         name: $name,
                         file_path: $path,
@@ -299,14 +340,14 @@ class LineageDB:
                 # Link change to symbol
                 _ = await db.query(
                     f"""
-                    RELATE change:{change_id}->records->symbol:{symbol_id}
+                    RELATE {change_record}->records->{symbol_record}
                 """
                 )
 
                 # Link task to symbol
                 _ = await db.query(
                     f"""
-                    RELATE task:{task_record_id}->modifies->symbol:{symbol_id}
+                    RELATE {task_record}->modifies->{symbol_record}
                     SET change_type = $type
                 """,
                     {"type": change_type},
@@ -339,7 +380,7 @@ class LineageDB:
 
     async def get_spec_progress(self, spec_id: str) -> dict[str, object] | None:
         """Get detailed progress for a spec."""
-        record_id = spec_id.replace("-", "_")
+        record = _record_id("spec", spec_id)
 
         async with self.connect() as db:
             result = await db.query(
@@ -353,7 +394,7 @@ class LineageDB:
                     count(<-implements<-plan<-belongs_to<-task[WHERE status = 'active']) AS active,
                     count(<-implements<-plan<-belongs_to<-task[WHERE status = 'blocked']) AS blocked,
                     math::sum(<-implements<-plan<-belongs_to<-task.actual_minutes) AS minutes_spent
-                FROM spec:{record_id}
+                FROM {record}
             """
             )
             if isinstance(result, list) and result:
