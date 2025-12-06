@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2025-12-06
+
+### Fixed
+
+- Template download URLs now include version suffix in filenames (e.g., `spectrena-template-claude-sh-v1.3.2.zip`) to match actual GitHub release asset names
+
 ## [1.3.1] - 2025-12-06
 
 ### Added
@@ -151,7 +157,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Scripts | Bash + PowerShell | Pure Python |
 | Windows | Via PowerShell | Native |
 
-[Unreleased]: https://github.com/rghsoftware/spectrena/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/rghsoftware/spectrena/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/rghsoftware/spectrena/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/rghsoftware/spectrena/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/rghsoftware/spectrena/compare/v1.0.1...v1.3.0
 [1.0.1]: https://github.com/rghsoftware/spectrena/compare/v1.0.0...v1.0.1
