@@ -293,7 +293,7 @@ In Claude Code:
 
 ```
 /spectrena.constitution
-# Establishes project principles in .spectrena/constitution.md
+# Establishes project principles in .spectrena/memory/constitution.md
 ```
 
 ### 4. Create Specs

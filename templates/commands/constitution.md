@@ -15,7 +15,7 @@ Establish foundational project principles and coding guidelines.
 
 ## Behavior
 
-1. Check if `.spectrena/constitution.md` exists
+1. Check if `.spectrena/memory/constitution.md` exists
 2. If not, ask about:
    - Project goals and values
    - Tech stack decisions
@@ -23,16 +23,16 @@ Establish foundational project principles and coding guidelines.
    - Architecture principles
    - Testing requirements
 3. Generate constitution document
-4. Write to `.spectrena/constitution.md`
+4. Write to `.spectrena/memory/constitution.md`
 5. **Git: Commit:**
    ```bash
-   git add .spectrena/constitution.md
+   git add .spectrena/memory/constitution.md
    git commit -m "docs: Establish project constitution"
    ```
 
 ## Output
 
-Creates `.spectrena/constitution.md`:
+Creates `.spectrena/memory/constitution.md`:
 
 ```markdown
 # Project Constitution
@@ -77,8 +77,8 @@ User: ADHD productivity app, Flutter + Supabase, clean architecture
 
 Claude: [generates constitution.md]
 
-$ git add .spectrena/constitution.md
+$ git add .spectrena/memory/constitution.md
 $ git commit -m "docs: Establish project constitution"
 
-Created .spectrena/constitution.md
+Created .spectrena/memory/constitution.md
 ```
