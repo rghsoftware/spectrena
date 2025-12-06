@@ -109,8 +109,8 @@ class LineageDB:
         self, from_spec: str, to_spec: str, dependency_type: str = "hard"
     ) -> dict[str, object]:
         """Add spec dependency edge."""
-        from_record = _record_id("spec", from_spec)
-        to_record = _record_id("spec", to_spec)
+        from_record = _record_literal("spec", from_spec)
+        to_record = _record_literal("spec", to_spec)
 
         async with self.connect() as db:
             result = await db.query(
@@ -166,6 +166,7 @@ class LineageDB:
     async def start_task(self, task_id: str) -> dict[str, object]:
         """Mark task as active and update phase state."""
         record = _record_id("task", task_id)
+        record_lit = _record_literal("task", task_id)
 
         async with self.connect() as db:
             # Update task status
@@ -181,7 +182,7 @@ class LineageDB:
             _ = await db.query(
                 f"""
                 DELETE current_task WHERE in = phase_state:current;
-                RELATE phase_state:current->current_task->{record}
+                RELATE phase_state:current->current_task->{record_lit}
             """
             )
 
@@ -287,14 +288,13 @@ class LineageDB:
         import uuid
 
         change_id = f"ch_{uuid.uuid4().hex[:8]}"
-        task_record = _record_id("task", task_id)
-        change_record_literal = _record_literal("change", change_id)
-        change_record = _record_id("change", change_id)
+        task_record_lit = _record_literal("task", task_id)
+        change_record_lit = _record_literal("change", change_id)
 
         async with self.connect() as db:
             # Create change record
             _ = await db.create(
-                change_record_literal,
+                change_record_lit,
                 {
                     "id": change_id,
                     "change_type": change_type,
@@ -308,7 +308,7 @@ class LineageDB:
             # Link to task
             _ = await db.query(
                 f"""
-                RELATE {change_record}->performed_in->{task_record}
+                RELATE {change_record_lit}->performed_in->{task_record_lit}
             """
             )
 
@@ -317,13 +317,12 @@ class LineageDB:
                 symbol_id = (
                     symbol_fqn.replace("::", "_").replace(".", "_").replace("/", "_")
                 )
-                symbol_record_literal = _record_literal("symbol", symbol_id)
-                symbol_record = _record_id("symbol", symbol_id)
+                symbol_record_lit = _record_literal("symbol", symbol_id)
 
                 # Create symbol if not exists
                 _ = await db.query(
                     f"""
-                    CREATE {symbol_record_literal} CONTENT {{
+                    CREATE {symbol_record_lit} CONTENT {{
                         fqn: $fqn,
                         name: $name,
                         file_path: $path,
@@ -340,14 +339,14 @@ class LineageDB:
                 # Link change to symbol
                 _ = await db.query(
                     f"""
-                    RELATE {change_record}->records->{symbol_record}
+                    RELATE {change_record_lit}->records->{symbol_record_lit}
                 """
                 )
 
                 # Link task to symbol
                 _ = await db.query(
                     f"""
-                    RELATE {task_record}->modifies->{symbol_record}
+                    RELATE {task_record_lit}->modifies->{symbol_record_lit}
                     SET change_type = $type
                 """,
                     {"type": change_type},
