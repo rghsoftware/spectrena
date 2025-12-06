@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2025-12-06
+
+### Added
+
+- **Project Update System** - New `spectrena update` command for updating projects with smart file categorization (PRESERVE, UPDATE, MERGE, ADD)
+- **Database Migration System** - Versioned schema migrations with automatic application on database connection
+- **Database Management** - New `spectrena db` command with `status`, `migrate`, and `reset` subcommands for manual database control
+- **Spec Completion Workflow** - New `/spectrena.spec.finish` slash command for verifying spec completion and creating pull/merge requests
+- **Git Provider Configuration** - Support for GitHub and GitLab with configurable default branches, auto-delete options, and PR templates
+- **Update Review Workflow** - New `/spectrena.review-updates` slash command for reviewing and merging pending project updates
+- **Hash Tracking** - File hash tracking system (`.template-hashes.json`) to detect user modifications during updates
+
+### Changed
+
+- LineageDB now automatically applies pending migrations on connection
+- Updated initialization wizard to include git provider configuration
+- Enhanced `spectrena check` command to verify git CLI availability
+
 ## [1.0.1] - 2025-12-06
 
 ### Fixed
@@ -122,7 +140,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Scripts | Bash + PowerShell | Pure Python |
 | Windows | Via PowerShell | Native |
 
-[Unreleased]: https://github.com/rghsoftware/spectrena/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/rghsoftware/spectrena/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/rghsoftware/spectrena/compare/v1.0.1...v1.3.0
 [1.0.1]: https://github.com/rghsoftware/spectrena/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/rghsoftware/spectrena/releases/tag/v1.0.0
 [0.3.3]: https://github.com/rghsoftware/spectrena/releases/tag/v0.3.3
