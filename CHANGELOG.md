@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2025-06-12
+
+### Added
+
+- **Spec Backlog Support** - New backlog workflow for managing spec ideas before formal specification
+- **Constitution File Management** - Project constitution now lives at `.spectrena/memory/constitution.md`
+- **Enhanced Implementation Templates** - Explicit task commit requirements in implement.md
+
+### Fixed
+
+- SurrealDB record ID escaping for special characters (SPECTRENA-PATCH-007)
+- Constitution file path corrected to `.spectrena/memory/constitution.md`
+
+### Changed
+
+- Improved documentation for implementation workflow with explicit commit guidance
+
+---
+
+## [0.3.3] - 2025-06-XX
+
+### Added
+
+- MCP server entry point (`spectrena-mcp`)
+- Enhanced lineage tracking
+
+---
+
 ## [0.1.0] - 2024-XX-XX
 
 ### Added
@@ -88,5 +116,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Scripts | Bash + PowerShell | Pure Python |
 | Windows | Via PowerShell | Native |
 
-[Unreleased]: https://github.com/rghsoftware/spectrena/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/rghsoftware/spectrena/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/rghsoftware/spectrena/releases/tag/v1.0.0
+[0.3.3]: https://github.com/rghsoftware/spectrena/releases/tag/v0.3.3
 [0.1.0]: https://github.com/rghsoftware/spectrena/releases/tag/v0.1.0
