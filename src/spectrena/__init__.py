@@ -2010,6 +2010,38 @@ def check():
         # Config not found or error loading - skip git CLI check
         pass
 
+    # Check lineage database if present
+    lineage_db_path = Path.cwd() / ".spectrena" / "lineage.db"
+    if lineage_db_path.exists():
+        tracker.add("lineage-db", "Lineage Database")
+        try:
+            import asyncio
+            from spectrena.lineage.db import LineageDB
+            from spectrena.lineage.migrations import get_schema_version, CURRENT_SCHEMA_VERSION
+
+            async def check_db():
+                db = LineageDB(lineage_db_path)
+                async with db.connect(run_migrations=False) as connection:
+                    return await get_schema_version(connection)
+
+            current_version = asyncio.run(check_db())
+            if current_version < CURRENT_SCHEMA_VERSION:
+                tracker.skip(
+                    "lineage-db",
+                    f"v{current_version} (needs migration to v{CURRENT_SCHEMA_VERSION})"
+                )
+            elif current_version > CURRENT_SCHEMA_VERSION:
+                tracker.error(
+                    "lineage-db",
+                    f"v{current_version} (newer than spectrena v{CURRENT_SCHEMA_VERSION})"
+                )
+            else:
+                tracker.complete("lineage-db", f"v{current_version}")
+        except ImportError:
+            tracker.skip("lineage-db", "surrealdb not installed")
+        except Exception as e:
+            tracker.error("lineage-db", str(e)[:50])
+
     console.print(tracker.render())
 
     console.print("\n[bold green]Spectrena CLI is ready to use![/bold green]")
