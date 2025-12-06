@@ -1973,6 +1973,199 @@ def check():
         console.print("[dim]Tip: Install an AI assistant for the best experience[/dim]")
 
 
+@app.command()
+def update(
+    version: str | None = typer.Option(None, "--version", "-v", help="Target version (default: latest)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show changes without applying"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+):
+    """
+    Update spectrena project to latest version.
+
+    Preserves user content (memory/, config) while updating
+    framework files (scripts, commands, templates).
+
+    Examples:
+        spectrena update                    # Update to latest
+        spectrena update --version 0.5.0    # Update to specific version
+        spectrena update --dry-run          # Show what would change
+        spectrena update --force            # Skip confirmation
+    """
+    from spectrena.update import run_update
+    run_update(version=version, dry_run=dry_run, force=force)
+
+
+@app.command()
+def db(
+    action: str = typer.Argument(..., help="Action: status, migrate, or reset"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change (for migrate)"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation (for reset)"),
+):
+    """
+    Manage lineage database schema.
+
+    Actions:
+        status   - Show current and latest schema version
+        migrate  - Apply pending schema migrations
+        reset    - Delete and recreate database (WARNING: data loss)
+
+    Examples:
+        spectrena db status                 # Check schema version
+        spectrena db migrate                # Apply migrations
+        spectrena db migrate --dry-run      # Preview migrations
+        spectrena db reset --force          # Reset database
+    """
+    import asyncio
+    from pathlib import Path
+
+    project_path = Path.cwd()
+    spectrena_dir = project_path / ".spectrena"
+
+    if not spectrena_dir.exists():
+        console.print("[red]Error:[/red] Not a spectrena project (no .spectrena/ directory)")
+        raise typer.Exit(1)
+
+    # Check if lineage is enabled
+    lineage_db_path = spectrena_dir / "lineage.db"
+
+    if action == "status":
+        asyncio.run(_db_status(lineage_db_path))
+    elif action == "migrate":
+        asyncio.run(_db_migrate(lineage_db_path, dry_run))
+    elif action == "reset":
+        asyncio.run(_db_reset(lineage_db_path, force))
+    else:
+        console.print(f"[red]Error:[/red] Unknown action '{action}'. Use: status, migrate, or reset")
+        raise typer.Exit(1)
+
+
+async def _db_status(db_path: Path):
+    """Show database schema status."""
+    try:
+        from spectrena.lineage.db import LineageDB
+        from spectrena.lineage.migrations import get_schema_version, CURRENT_SCHEMA_VERSION
+
+        db = LineageDB(db_path)
+        async with db.connect(run_migrations=False) as connection:
+            current = await get_schema_version(connection)
+
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("Key", style="cyan", justify="right")
+        table.add_column("Value", style="white")
+
+        table.add_row("Database Path", str(db_path))
+        table.add_row("Current Schema", f"v{current}")
+        table.add_row("Latest Schema", f"v{CURRENT_SCHEMA_VERSION}")
+
+        if current < CURRENT_SCHEMA_VERSION:
+            table.add_row("Status", f"[yellow]{CURRENT_SCHEMA_VERSION - current} pending migrations[/yellow]")
+        elif current == CURRENT_SCHEMA_VERSION:
+            table.add_row("Status", "[green]Up to date[/green]")
+        else:
+            table.add_row("Status", "[red]Database newer than spectrena![/red]")
+
+        status_panel = Panel(
+            table,
+            title="[bold cyan]Lineage Database Status[/bold cyan]",
+            border_style="cyan",
+            padding=(1, 2),
+        )
+        console.print(status_panel)
+
+        if current < CURRENT_SCHEMA_VERSION:
+            console.print("\n[dim]Run 'spectrena db migrate' to apply pending migrations[/dim]")
+        elif current > CURRENT_SCHEMA_VERSION:
+            console.print("\n[yellow]Warning:[/yellow] Database schema is newer than this version of spectrena")
+            console.print("[dim]Run 'pip install --upgrade spectrena' to update[/dim]")
+
+    except ImportError:
+        console.print("[yellow]Lineage tracking not available[/yellow]")
+        console.print("[dim]Install with: pip install 'spectrena[lineage-surreal]'[/dim]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error checking database:[/red] {e}")
+        raise typer.Exit(1)
+
+
+async def _db_migrate(db_path: Path, dry_run: bool):
+    """Apply pending migrations."""
+    try:
+        from spectrena.lineage.db import LineageDB
+        from spectrena.lineage.migrations import (
+            get_schema_version,
+            CURRENT_SCHEMA_VERSION,
+            MIGRATIONS,
+        )
+
+        db = LineageDB(db_path)
+        async with db.connect(run_migrations=False) as connection:
+            current = await get_schema_version(connection)
+
+        if current >= CURRENT_SCHEMA_VERSION:
+            console.print("[green]Database is already up to date[/green]")
+            return
+
+        console.print(f"[cyan]Migrations to apply:[/cyan] v{current} → v{CURRENT_SCHEMA_VERSION}")
+
+        if dry_run:
+            console.print("\n[yellow]Dry run - showing pending migrations:[/yellow]\n")
+            for version in range(current + 1, CURRENT_SCHEMA_VERSION + 1):
+                console.print(f"[cyan]Migration {version}:[/cyan]")
+                migration = MIGRATIONS.get(version)
+                if callable(migration):
+                    console.print(f"  [dim]<custom migration function>[/dim]")
+                else:
+                    console.print(f"  [dim]{migration[:200]}...[/dim]")
+                console.print()
+            return
+
+        # Run migrations
+        async with db.connect(run_migrations=True) as _:
+            pass  # Migrations run automatically on connect
+
+        console.print("[green]✓ Migrations applied successfully[/green]")
+
+    except ImportError:
+        console.print("[yellow]Lineage tracking not available[/yellow]")
+        console.print("[dim]Install with: pip install 'spectrena[lineage-surreal]'[/dim]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error applying migrations:[/red] {e}")
+        raise typer.Exit(1)
+
+
+async def _db_reset(db_path: Path, force: bool):
+    """Reset database (delete and recreate)."""
+    try:
+        from spectrena.lineage.db import LineageDB
+
+        if not force:
+            console.print("[red]WARNING: This will delete all lineage data![/red]")
+            if not typer.confirm("Are you sure?"):
+                console.print("[yellow]Cancelled[/yellow]")
+                return
+
+        # Delete database directory
+        if db_path.exists():
+            shutil.rmtree(db_path)
+            console.print(f"[cyan]Deleted:[/cyan] {db_path}")
+
+        # Recreate with migrations
+        db = LineageDB(db_path)
+        async with db.connect(run_migrations=True) as _:
+            pass
+
+        console.print("[green]✓ Database reset complete[/green]")
+
+    except ImportError:
+        console.print("[yellow]Lineage tracking not available[/yellow]")
+        console.print("[dim]Install with: pip install 'spectrena[lineage-surreal]'[/dim]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error resetting database:[/red] {e}")
+        raise typer.Exit(1)
+
+
 def main():
     app()
 

@@ -1,0 +1,8 @@
+# Spectrena update tracking (machine-generated)
+.template-hashes.json
+pending-updates.md
+
+# Temporary files
+*.tmp
+*.bak
+*~
