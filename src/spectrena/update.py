@@ -425,14 +425,15 @@ def download_template(
     import ssl
 
     # Construct download URL
-    pattern = f"spectrena-template-{agent}-{script_type}"
-
+    # Filename format: spectrena-template-{agent}-{script_type}-v{version}.zip
     if version == "latest":
         base_url = f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases/latest/download"
+        filename = f"spectrena-template-{agent}-{script_type}.zip"
     else:
         base_url = f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases/download/v{version}"
+        filename = f"spectrena-template-{agent}-{script_type}-v{version}.zip"
 
-    url = f"{base_url}/{pattern}.zip"
+    url = f"{base_url}/{filename}"
 
     console.print(f"  [dim]Downloading from {url}[/dim]")
 
