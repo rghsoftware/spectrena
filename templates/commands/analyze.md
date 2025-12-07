@@ -1,184 +1,233 @@
 ---
-description: Perform a non-destructive cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation.
+description: Analyze project structure and spectrena configuration
+arguments: []
 ---
 
-## User Input
+# Analyze
 
-```text
-$ARGUMENTS
+Analyze the current project's spectrena setup, configuration, and spec status.
+
+## Execution
+
+### 1. Verify Spectrena Project
+
+```bash
+if [ ! -d ".spectrena" ]; then
+    echo "❌ Not a spectrena project (no .spectrena/ directory)"
+    echo "Run 'spectrena init' to initialize"
+    exit 1
+fi
+echo "✓ Spectrena project detected"
 ```
 
-You **MUST** consider the user input before proceeding (if not empty).
+### 2. Configuration Summary
 
-## Goal
+```bash
+echo ""
+echo "=== Configuration ==="
+if [ -f ".spectrena/config.yml" ]; then
+    cat .spectrena/config.yml
+else
+    echo "⚠️ No config.yml found"
+fi
+```
 
-Identify inconsistencies, duplications, ambiguities, and underspecified items across the three core artifacts (`spec.md`, `plan.md`, `tasks.md`) before implementation. This command MUST run only after `/spectrena.tasks` has successfully produced a complete `tasks.md`.
+### 3. Project Structure
 
-## Operating Constraints
+```bash
+echo ""
+echo "=== Project Structure ==="
+echo ""
+echo ".spectrena/"
+ls -la .spectrena/ 2>/dev/null | tail -n +2
 
-**STRICTLY READ-ONLY**: Do **not** modify any files. Output a structured analysis report. Offer an optional remediation plan (user must explicitly approve before any follow-up editing commands would be invoked manually).
+if [ -d ".spectrena/templates" ]; then
+    echo ""
+    echo ".spectrena/templates/"
+    ls -la .spectrena/templates/ 2>/dev/null | tail -n +2
+fi
 
-**Constitution Authority**: The project constitution (`/memory/constitution.md`) is **non-negotiable** within this analysis scope. Constitution conflicts are automatically CRITICAL and require adjustment of the spec, plan, or tasks—not dilution, reinterpretation, or silent ignoring of the principle. If a principle itself needs to change, that must occur in a separate, explicit constitution update outside `/spectrena.analyze`.
+if [ -d ".spectrena/memory" ]; then
+    echo ""
+    echo ".spectrena/memory/"
+    ls -la .spectrena/memory/ 2>/dev/null | tail -n +2
+fi
+```
 
-## Execution Steps
+### 4. Specs Status
 
-### 1. Initialize Analysis Context
+```bash
+echo ""
+echo "=== Specs ==="
 
-Run `{SCRIPT}` once from repo root and parse JSON for FEATURE_DIR and AVAILABLE_DOCS. Derive absolute paths:
+if [ -d "specs" ]; then
+    SPEC_COUNT=$(find specs -maxdepth 1 -type d | tail -n +2 | wc -l)
+    echo "Total specs: $SPEC_COUNT"
+    echo ""
 
-- SPEC = FEATURE_DIR/spec.md
-- PLAN = FEATURE_DIR/plan.md
-- TASKS = FEATURE_DIR/tasks.md
+    for spec_dir in specs/*/; do
+        if [ -d "$spec_dir" ]; then
+            SPEC_ID=$(basename "$spec_dir")
 
-Abort with an error message if any required file is missing (instruct the user to run missing prerequisite command).
-For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
+            # Check which files exist
+            HAS_SPEC=""
+            HAS_PLAN=""
+            HAS_TASKS=""
 
-### 2. Load Artifacts (Progressive Disclosure)
+            [ -f "${spec_dir}spec.md" ] && HAS_SPEC="✓" || HAS_SPEC="○"
+            [ -f "${spec_dir}plan.md" ] && HAS_PLAN="✓" || HAS_PLAN="○"
+            [ -f "${spec_dir}tasks.md" ] && HAS_TASKS="✓" || HAS_TASKS="○"
 
-Load only the minimal necessary context from each artifact:
+            # Count task completion if tasks.md exists
+            if [ -f "${spec_dir}tasks.md" ]; then
+                TOTAL=$(grep -c '^\s*- \[' "${spec_dir}tasks.md" 2>/dev/null || echo "0")
+                DONE=$(grep -c '^\s*- \[x\]' "${spec_dir}tasks.md" 2>/dev/null || echo "0")
+                TASK_STATUS="${DONE}/${TOTAL}"
+            else
+                TASK_STATUS="-"
+            fi
 
-**From spec.md:**
+            echo "  $SPEC_ID"
+            echo "    spec:$HAS_SPEC  plan:$HAS_PLAN  tasks:$HAS_TASKS  progress:$TASK_STATUS"
+        fi
+    done
+else
+    echo "No specs/ directory found"
+fi
+```
 
-- Overview/Context
-- Functional Requirements
-- Non-Functional Requirements
-- User Stories
-- Edge Cases (if present)
+### 5. Git Branch Status
 
-**From plan.md:**
+```bash
+echo ""
+echo "=== Git Status ==="
 
-- Architecture/stack choices
-- Data Model references
-- Phases
-- Technical constraints
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
+echo "Current branch: $CURRENT_BRANCH"
 
-**From tasks.md:**
+# Check if on a spec branch
+if [[ "$CURRENT_BRANCH" == spec/* ]]; then
+    SPEC_ID="${CURRENT_BRANCH#spec/}"
+    echo "Active spec: $SPEC_ID"
 
-- Task IDs
-- Descriptions
-- Phase grouping
-- Parallel markers [P]
-- Referenced file paths
+    # Show commits on this branch
+    COMMIT_COUNT=$(git rev-list --count main..$CURRENT_BRANCH 2>/dev/null || echo "?")
+    echo "Commits ahead of main: $COMMIT_COUNT"
+fi
 
-**From constitution:**
+# List spec branches
+echo ""
+echo "Spec branches:"
+git branch --list 'spec/*' 2>/dev/null | while read branch; do
+    echo "  $branch"
+done
 
-- Load `/memory/constitution.md` for principle validation
+if [ -z "$(git branch --list 'spec/*' 2>/dev/null)" ]; then
+    echo "  (none)"
+fi
+```
 
-### 3. Build Semantic Models
+### 6. Backlog Status (if enabled)
 
-Create internal representations (do not include raw artifacts in output):
+```bash
+echo ""
+echo "=== Backlog ==="
 
-- **Requirements inventory**: Each functional + non-functional requirement with a stable key (derive slug based on imperative phrase; e.g., "User can upload file" → `user-can-upload-file`)
-- **User story/action inventory**: Discrete user actions with acceptance criteria
-- **Task coverage mapping**: Map each task to one or more requirements or stories (inference by keyword / explicit reference patterns like IDs or key phrases)
-- **Constitution rule set**: Extract principle names and MUST/SHOULD normative statements
+# Check config for backlog path
+if [ -f ".spectrena/config.yml" ]; then
+    BACKLOG_ENABLED=$(grep -A1 "^backlog:" .spectrena/config.yml | grep "enabled:" | grep -o "true\|false")
 
-### 4. Detection Passes (Token-Efficient Analysis)
+    if [ "$BACKLOG_ENABLED" = "true" ]; then
+        BACKLOG_PATH=$(grep -A2 "^backlog:" .spectrena/config.yml | grep "path:" | sed 's/.*path: *"\?\([^"]*\)"\?/\1/')
+        BACKLOG_PATH=${BACKLOG_PATH:-.spectrena/backlog.md}
 
-Focus on high-signal findings. Limit to 50 findings total; aggregate remainder in overflow summary.
+        if [ -f "$BACKLOG_PATH" ]; then
+            echo "Backlog: $BACKLOG_PATH"
 
-#### A. Duplication Detection
+            # Count by status
+            NOT_STARTED=$(grep -c "⬜" "$BACKLOG_PATH" 2>/dev/null || echo "0")
+            IN_PROGRESS=$(grep -c "🟨" "$BACKLOG_PATH" 2>/dev/null || echo "0")
+            COMPLETE=$(grep -c "🟩" "$BACKLOG_PATH" 2>/dev/null || echo "0")
+            BLOCKED=$(grep -c "🚫" "$BACKLOG_PATH" 2>/dev/null || echo "0")
 
-- Identify near-duplicate requirements
-- Mark lower-quality phrasing for consolidation
+            echo "  ⬜ Not started: $NOT_STARTED"
+            echo "  🟨 In progress: $IN_PROGRESS"
+            echo "  🟩 Complete: $COMPLETE"
+            echo "  🚫 Blocked: $BLOCKED"
+        else
+            echo "Backlog enabled but file not found: $BACKLOG_PATH"
+        fi
+    else
+        echo "Backlog: disabled"
+    fi
+else
+    echo "Backlog: (no config)"
+fi
+```
 
-#### B. Ambiguity Detection
+### 7. Lineage Status (if enabled)
 
-- Flag vague adjectives (fast, scalable, secure, intuitive, robust) lacking measurable criteria
-- Flag unresolved placeholders (TODO, TKTK, ???, `<placeholder>`, etc.)
+```bash
+echo ""
+echo "=== Lineage Database ==="
 
-#### C. Underspecification
+if [ -f ".spectrena/config.yml" ]; then
+    LINEAGE_ENABLED=$(grep -A1 "^lineage:" .spectrena/config.yml | grep "enabled:" | grep -o "true\|false")
 
-- Requirements with verbs but missing object or measurable outcome
-- User stories missing acceptance criteria alignment
-- Tasks referencing files or components not defined in spec/plan
+    if [ "$LINEAGE_ENABLED" = "true" ]; then
+        if [ -d ".spectrena/lineage.db" ]; then
+            DB_SIZE=$(du -sh .spectrena/lineage.db 2>/dev/null | cut -f1)
+            echo "Lineage DB: .spectrena/lineage.db ($DB_SIZE)"
+        else
+            echo "Lineage enabled but database not found"
+        fi
+    else
+        echo "Lineage: disabled"
+    fi
+else
+    echo "Lineage: (no config)"
+fi
+```
 
-#### D. Constitution Alignment
+### 8. Version Info
 
-- Any requirement or plan element conflicting with a MUST principle
-- Missing mandated sections or quality gates from constitution
+```bash
+echo ""
+echo "=== Version ==="
 
-#### E. Coverage Gaps
+if [ -f ".spectrena/.version" ]; then
+    echo "Template version: $(cat .spectrena/.version)"
+else
+    echo "Template version: unknown (no .version file)"
+fi
 
-- Requirements with zero associated tasks
-- Tasks with no mapped requirement/story
-- Non-functional requirements not reflected in tasks (e.g., performance, security)
+# Check spectrena CLI version
+if command -v spectrena &> /dev/null; then
+    echo "CLI version: $(spectrena --version 2>/dev/null || echo 'unknown')"
+else
+    echo "CLI: not installed"
+fi
+```
 
-#### F. Inconsistency
+## Summary Report
 
-- Terminology drift (same concept named differently across files)
-- Data entities referenced in plan but absent in spec (or vice versa)
-- Task ordering contradictions (e.g., integration tasks before foundational setup tasks without dependency note)
-- Conflicting requirements (e.g., one requires Next.js while other specifies Vue)
+After running all checks, provide a summary:
 
-### 5. Severity Assignment
+### Analysis Summary
 
-Use this heuristic to prioritize findings:
+| Component | Status |
+|-----------|--------|
+| Config | (Valid/Missing) |
+| Templates | (count) files |
+| Specs | (count) total |
+| Backlog | (status) |
+| Lineage | (status) |
+| Git | (branch info) |
 
-- **CRITICAL**: Violates constitution MUST, missing core spec artifact, or requirement with zero coverage that blocks baseline functionality
-- **HIGH**: Duplicate or conflicting requirement, ambiguous security/performance attribute, untestable acceptance criterion
-- **MEDIUM**: Terminology drift, missing non-functional task coverage, underspecified edge case
-- **LOW**: Style/wording improvements, minor redundancy not affecting execution order
+### Recommendations
 
-### 6. Produce Compact Analysis Report
+Based on the analysis, provide actionable recommendations:
 
-Output a Markdown report (no file writes) with the following structure:
-
-## Specification Analysis Report
-
-| ID  | Category    | Severity | Location(s)      | Summary                      | Recommendation                       |
-| --- | ----------- | -------- | ---------------- | ---------------------------- | ------------------------------------ |
-| A1  | Duplication | HIGH     | spec.md:L120-134 | Two similar requirements ... | Merge phrasing; keep clearer version |
-
-(Add one row per finding; generate stable IDs prefixed by category initial.)
-
-**Coverage Summary Table:**
-
-| Requirement Key | Has Task? | Task IDs | Notes |
-| --------------- | --------- | -------- | ----- |
-
-**Constitution Alignment Issues:** (if any)
-
-**Unmapped Tasks:** (if any)
-
-**Metrics:**
-
-- Total Requirements
-- Total Tasks
-- Coverage % (requirements with >=1 task)
-- Ambiguity Count
-- Duplication Count
-- Critical Issues Count
-
-### 7. Provide Next Actions
-
-At end of report, output a concise Next Actions block:
-
-- If CRITICAL issues exist: Recommend resolving before `/spectrena.implement`
-- If only LOW/MEDIUM: User may proceed, but provide improvement suggestions
-- Provide explicit command suggestions: e.g., "Run /spectrena.specify with refinement", "Run /spectrena.plan to adjust architecture", "Manually edit tasks.md to add coverage for 'performance-metrics'"
-
-### 8. Offer Remediation
-
-Ask the user: "Would you like me to suggest concrete remediation edits for the top N issues?" (Do NOT apply them automatically.)
-
-## Operating Principles
-
-### Context Efficiency
-
-- **Minimal high-signal tokens**: Focus on actionable findings, not exhaustive documentation
-- **Progressive disclosure**: Load artifacts incrementally; don't dump all content into analysis
-- **Token-efficient output**: Limit findings table to 50 rows; summarize overflow
-- **Deterministic results**: Rerunning without changes should produce consistent IDs and counts
-
-### Analysis Guidelines
-
-- **NEVER modify files** (this is read-only analysis)
-- **NEVER hallucinate missing sections** (if absent, report them accurately)
-- **Prioritize constitution violations** (these are always CRITICAL)
-- **Use examples over exhaustive rules** (cite specific instances, not generic patterns)
-- **Report zero issues gracefully** (emit success report with coverage statistics)
-
-## Context
-
-{ARGS}
+- If specs are incomplete, suggest next steps (e.g., `/spectrena.plan`, `/spectrena.tasks`)
+- If tasks are complete, suggest `/spectrena.spec.finish`
+- If no specs exist, suggest `/spectrena.specify` to create one
