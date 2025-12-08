@@ -407,11 +407,10 @@ def extract_spec_id(branch: str) -> str:
 def get_completed_specs(repo: Repo) -> set[str]:
     """Get spec IDs that have been merged to main.
 
-    Uses merge-base --is-ancestor which correctly detects:
-    - Regular merges
-    - Squash merges (GitHub UI)
-    - Rebase merges
-    - Fast-forward merges
+    Checks (in order):
+    1. Local branch is ancestor of main
+    2. Remote tracking branch is ancestor of main
+    3. Merge commit exists referencing the branch
     """
     main_branch = "main" if "main" in [b.name for b in repo.branches] else "master"
     completed = set()
@@ -420,12 +419,36 @@ def get_completed_specs(repo: Repo) -> set[str]:
         if not branch.name.startswith("spec/"):
             continue
 
+        spec_id = extract_spec_id(branch.name)
+
+        # Method 1: Local branch is ancestor of main
         try:
-            # merge-base --is-ancestor returns exit 0 if branch is ancestor of main
             repo.git.merge_base("--is-ancestor", branch.name, main_branch)
-            completed.add(extract_spec_id(branch.name))
+            completed.add(spec_id)
+            continue
         except GitCommandError:
-            # Exit non-zero = not an ancestor = not merged
+            pass
+
+        # Method 2: Remote tracking branch is ancestor of main
+        try:
+            remote_branch = f"origin/{branch.name}"
+            repo.git.merge_base("--is-ancestor", remote_branch, main_branch)
+            completed.add(spec_id)
+            continue
+        except GitCommandError:
+            pass
+
+        # Method 3: Merge commit exists mentioning this branch
+        try:
+            merge_commits = repo.git.log(
+                "--oneline",
+                f"--grep={branch.name}",
+                main_branch,
+                "--merges"
+            )
+            if merge_commits.strip():
+                completed.add(spec_id)
+        except GitCommandError:
             pass
 
     return completed
