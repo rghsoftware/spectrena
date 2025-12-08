@@ -292,6 +292,78 @@ def load_dependencies() -> dict[str, list[str]]:
     return parse_mermaid_deps(deps_file)
 
 
+def load_backlog_dependencies() -> tuple[dict[str, list[str]], dict[str, str]]:
+    """
+    Load dependencies and status from backlog (if enabled).
+
+    Returns:
+        Tuple of (dependencies dict, status dict)
+        - dependencies: {spec_id: [dep_ids]}
+        - status: {spec_id: status_emoji}  (⬜, 🟨, 🟩, 🚫)
+    """
+    from spectrena.config import Config
+    from spectrena.backlog import parse_backlog
+
+    config = Config.load()
+
+    if not config.backlog.enabled:
+        return {}, {}
+
+    backlog_path = Path.cwd() / config.backlog.path
+    entries = parse_backlog(backlog_path)
+
+    dependencies: dict[str, list[str]] = {}
+    status: dict[str, str] = {}
+
+    for spec_id, entry in entries.items():
+        dependencies[spec_id] = entry.depends_on
+        status[spec_id] = entry.status
+
+    return dependencies, status
+
+
+def is_spec_ready(
+    spec_id: str,
+    backlog_deps: dict[str, list[str]],
+    backlog_status: dict[str, str],
+    mermaid_deps: dict[str, list[str]],
+    completed_branches: set[str],
+) -> tuple[bool, list[str]]:
+    """
+    Check if a spec is ready to work on.
+
+    Priority:
+    1. If backlog enabled → check backlog deps have status 🟩
+    2. Fallback → check mermaid deps are in completed_branches
+
+    Returns:
+        Tuple of (is_ready, unmet_deps)
+    """
+    # Normalize spec_id for lookup (handle case variations)
+    spec_lower = spec_id.lower()
+
+    # Check backlog first (if we have entries)
+    if backlog_status:
+        deps = backlog_deps.get(spec_lower, [])
+        unmet = []
+
+        for dep in deps:
+            dep_lower = dep.lower()
+            dep_status = backlog_status.get(dep_lower, "❓")
+
+            # 🟩 = completed, anything else = not ready
+            if dep_status != "🟩":
+                unmet.append(f"{dep} ({dep_status})")
+
+        return len(unmet) == 0, unmet
+
+    # Fallback to mermaid deps + git branch completion
+    deps = mermaid_deps.get(spec_id, [])
+    unmet = [d for d in deps if d not in completed_branches]
+
+    return len(unmet) == 0, unmet
+
+
 def get_spec_branches(repo: Repo) -> list[str]:
     """Get all branches matching spec pattern."""
     pattern = "spec/"  # Could be configurable
@@ -333,18 +405,28 @@ def extract_spec_id(branch: str) -> str:
 
 
 def get_completed_specs(repo: Repo) -> set[str]:
-    """Get spec IDs that have been merged to main."""
+    """Get spec IDs that have been merged to main.
+
+    Uses merge-base --is-ancestor which correctly detects:
+    - Regular merges
+    - Squash merges (GitHub UI)
+    - Rebase merges
+    - Fast-forward merges
+    """
     main_branch = "main" if "main" in [b.name for b in repo.branches] else "master"
     completed = set()
 
-    try:
-        merged = repo.git.branch("--merged", main_branch)
-        for line in merged.splitlines():
-            branch = line.strip().lstrip("* ")
-            if branch.startswith("spec/"):
-                completed.add(extract_spec_id(branch))
-    except GitCommandError:
-        pass
+    for branch in repo.branches:
+        if not branch.name.startswith("spec/"):
+            continue
+
+        try:
+            # merge-base --is-ancestor returns exit 0 if branch is ancestor of main
+            repo.git.merge_base("--is-ancestor", branch.name, main_branch)
+            completed.add(extract_spec_id(branch.name))
+        except GitCommandError:
+            # Exit non-zero = not an ancestor = not merged
+            pass
 
     return completed
 
@@ -361,6 +443,7 @@ def list_branches():
     branches = get_spec_branches(repo)
     worktrees = {wt.get("branch"): wt for wt in get_worktrees(repo)}
     completed = get_completed_specs(repo)
+    _, backlog_status = load_backlog_dependencies()
 
     if not branches:
         console.print("[yellow]No spec branches found[/yellow]")
@@ -375,9 +458,17 @@ def list_branches():
 
     for branch in sorted(branches):
         spec_id = extract_spec_id(branch)
+        spec_lower = spec_id.lower()
 
+        # Determine status (priority order)
         if spec_id in completed:
             status = "[green]✓ merged[/green]"
+        elif backlog_status.get(spec_lower) == "🟩":
+            status = "[green]✓ done[/green]"
+        elif backlog_status.get(spec_lower) == "🟨":
+            status = "[yellow]● in progress[/yellow]"
+        elif backlog_status.get(spec_lower) == "🚫":
+            status = "[red]✗ cancelled[/red]"
         elif branch in worktrees:
             status = "[yellow]● active[/yellow]"
         else:
@@ -404,38 +495,67 @@ def deps():
 
 @app.command()
 def ready():
-    """Show specs that are ready to work on (all deps completed)."""
+    """Show specs that are ready to work on (all deps completed).
+
+    Checks:
+    - Backlog dependencies (if backlog enabled) -> deps must have status completed
+    - Mermaid dependencies (fallback) -> deps must be merged to main
+    """
     repo = get_repo()
-    dependencies = load_dependencies()
+    mermaid_deps = load_dependencies()
+    backlog_deps, backlog_status = load_backlog_dependencies()
     completed = get_completed_specs(repo)
     branches = get_spec_branches(repo)
 
     ready_specs = []
+    blocked_specs = []
 
     for branch in branches:
         spec_id = extract_spec_id(branch)
 
-        # Skip already completed
+        # Skip already completed (merged to main)
         if spec_id in completed:
             continue
 
-        # Check if all dependencies are met
-        deps = dependencies.get(spec_id, [])
-        unmet = [d for d in deps if d not in completed]
+        # Skip if backlog shows it's already done
+        if backlog_status.get(spec_id.lower()) == "🟩":
+            continue
 
-        if not unmet:
+        # Check dependencies
+        is_ready, unmet = is_spec_ready(
+            spec_id, backlog_deps, backlog_status, mermaid_deps, completed
+        )
+
+        if is_ready:
             ready_specs.append((branch, spec_id))
+        elif unmet:
+            blocked_specs.append((branch, spec_id, unmet))
 
-    if not ready_specs:
+    # Display results
+    if ready_specs:
+        console.print("[bold green]Ready to work on:[/bold green]\n")
+        for branch, spec_id in ready_specs:
+            console.print(f"  [cyan]{branch}[/cyan]")
+            console.print(f"    sw create {branch}")
+            console.print()
+    else:
         console.print("[yellow]No specs ready to work on[/yellow]")
-        console.print("Either all specs are completed or have unmet dependencies.")
-        return
 
-    console.print("[bold green]Ready to work on:[/bold green]\n")
-    for branch, spec_id in ready_specs:
-        console.print(f"  [cyan]{branch}[/cyan]")
-        console.print(f"    sw create {branch}")
-        console.print()
+    # Show blocked specs with reasons
+    if blocked_specs:
+        console.print("\n[bold yellow]Blocked specs:[/bold yellow]\n")
+        for branch, spec_id, unmet in blocked_specs:
+            console.print(f"  [dim]{spec_id}[/dim]")
+            console.print(f"    Waiting on: {', '.join(unmet)}")
+            console.print()
+
+    # Show data source being used
+    if backlog_status:
+        console.print(f"\n[dim]Using backlog dependencies ({len(backlog_status)} specs tracked)[/dim]")
+    elif mermaid_deps:
+        console.print(f"\n[dim]Using deps.mermaid ({len(mermaid_deps)} specs)[/dim]")
+    else:
+        console.print("\n[dim]No dependency data found (all specs shown as ready)[/dim]")
 
 
 @app.command()
