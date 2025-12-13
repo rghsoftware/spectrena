@@ -1,5 +1,5 @@
 ---
-description: Verify spec completion, review implementation against requirements, and create a pull/merge request.
+description: Verify spec completion, review implementation against requirements, generate documentation, and create a pull/merge request.
 arguments:
   - name: spec-id
     description: Spec ID to finish (optional - detects from branch)
@@ -12,11 +12,19 @@ arguments:
     description: Skip AI compliance review (only check tasks)
     required: false
     flag: --skip-review
+  - name: skip-docs
+    description: Skip documentation generation
+    required: false
+    flag: --skip-docs
+  - name: docs-only
+    description: Only generate documentation (skip PR creation)
+    required: false
+    flag: --docs-only
 ---
 
 # Spec Finish
 
-Verify a spec is complete and create a pull/merge request.
+Verify a spec is complete, generate documentation, and create a pull/merge request.
 
 ## Usage
 
@@ -32,6 +40,15 @@ Verify a spec is complete and create a pull/merge request.
 
 # Quick mode (skip AI review)
 /spectrena.spec.finish --skip-review
+
+# Skip documentation generation
+/spectrena.spec.finish --skip-docs
+
+# Only generate documentation (no PR)
+/spectrena.spec.finish --docs-only
+
+# Combine options
+/spectrena.spec.finish --draft --skip-review
 ```
 
 ---
@@ -95,11 +112,19 @@ fi
 # Parse flags from arguments
 DRAFT_FLAG=""
 SKIP_REVIEW=""
+SKIP_DOCS=""
+DOCS_ONLY=""
 if [[ "{ARGS}" == *"--draft"* ]] || [[ "{ARGS}" == *"-d"* ]]; then
     DRAFT_FLAG="--draft"
 fi
 if [[ "{ARGS}" == *"--skip-review"* ]]; then
     SKIP_REVIEW="true"
+fi
+if [[ "{ARGS}" == *"--skip-docs"* ]]; then
+    SKIP_DOCS="true"
+fi
+if [[ "{ARGS}" == *"--docs-only"* ]]; then
+    DOCS_ONLY="true"
 fi
 
 echo "Provider: $PROVIDER"
@@ -173,9 +198,368 @@ If discrepancies are found, ask the user how to proceed:
 
 If user chooses "Update code", exit with message to fix and re-run. If "Update spec", make the changes and continue.
 
-### 4. Pre-Submit Verification
+### 4. Documentation Generation (Unless --skip-docs)
 
-Check for uncommitted changes and branch status:
+If `--skip-docs` is NOT set, generate documentation for the implementation:
+
+```bash
+if [ -z "$SKIP_DOCS" ]; then
+    echo ""
+    echo "## Documentation Generation"
+    echo ""
+fi
+```
+
+#### 4a. Detect Documentation Requirements
+
+**AI Task:** Analyze the spec and implementation to determine what documentation is needed:
+
+1. **Read spec.md** - Check for:
+   - `## Interfaces` / `### Operations` section → API documentation needed
+   - `## Data Model` section → Data model documentation needed
+   - Public-facing functionality → User/developer documentation needed
+
+2. **Analyze changed files** - Run: `git diff ${DEFAULT_BRANCH}...HEAD --name-only` and check for:
+   - New public APIs (functions, classes, endpoints)
+   - New CLI commands or options
+   - Configuration changes
+   - Breaking changes
+
+3. **Check existing documentation** - Identify:
+   - Project documentation location (e.g., `docs/`, `README.md`)
+   - API documentation format (e.g., OpenAPI, JSDoc, docstrings)
+   - Whether a docs site exists (DocFX, MkDocs, Sphinx, etc.)
+
+```bash
+# Detect documentation paths from config or conventions
+DOCS_PATH="docs"
+API_DOCS_PATH=""
+README_PATH="README.md"
+
+if [ -f ".spectrena/config.yml" ]; then
+    CUSTOM_DOCS_PATH=$(grep -A 5 "^documentation:" .spectrena/config.yml | grep "path:" | sed 's/.*path: *"\?\([^"]*\)"\?.*/\1/')
+    if [ -n "$CUSTOM_DOCS_PATH" ]; then
+        DOCS_PATH="$CUSTOM_DOCS_PATH"
+    fi
+    API_DOCS_PATH=$(grep -A 5 "^documentation:" .spectrena/config.yml | grep "api_path:" | sed 's/.*api_path: *"\?\([^"]*\)"\?.*/\1/')
+fi
+
+# Check if docs directory exists
+if [ -d "$DOCS_PATH" ]; then
+    echo "✓ Documentation directory found: $DOCS_PATH"
+else
+    echo "ℹ️  No documentation directory found at $DOCS_PATH"
+fi
+```
+
+**Output format for documentation requirements:**
+
+```markdown
+## Documentation Requirements
+
+### Detected Changes Requiring Documentation
+
+| Change Type | Files/Components | Documentation Needed |
+|-------------|------------------|---------------------|
+| [New API] | [file:function] | API reference |
+| [New CLI command] | [command name] | User guide update |
+| [Config change] | [config key] | Configuration docs |
+| [Breaking change] | [what changed] | Migration guide |
+
+### Recommended Documentation Updates
+
+1. **API Documentation**: [Yes/No - reason]
+2. **Developer Documentation**: [Yes/No - reason]
+3. **User Documentation**: [Yes/No - reason]
+4. **README Update**: [Yes/No - reason]
+```
+
+#### 4b. Generate API Documentation
+
+If API documentation is needed:
+
+**AI Task:** Generate or update API documentation based on the implementation:
+
+1. **For REST/HTTP APIs:**
+   - Extract endpoint definitions from code
+   - Generate OpenAPI/Swagger spec if not present
+   - Update existing API docs with new endpoints
+   - Include request/response examples from spec
+
+2. **For Code APIs (libraries, SDKs):**
+   - Generate API reference from docstrings/comments
+   - Create usage examples
+   - Document public interfaces, classes, and functions
+   - Include type information
+
+3. **For CLI commands:**
+   - Document new commands and options
+   - Include usage examples
+   - Update help text references
+
+**Output location:** `specs/${SPEC_ID}/api-docs.md` or project's API docs location
+
+**API Documentation Template:**
+
+```markdown
+# API Documentation: [SPEC_TITLE]
+
+**Generated from:** specs/${SPEC_ID}/spec.md
+**Version:** [version from spec]
+**Date:** [current date]
+
+## Overview
+
+[Brief description of the API functionality added by this spec]
+
+## Endpoints / Functions
+
+### [Endpoint/Function Name]
+
+**Description:** [What it does]
+
+**Signature/Path:**
+\`\`\`
+[HTTP method + path] OR [function signature]
+\`\`\`
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| [param] | [type] | [yes/no] | [description] |
+
+**Returns:**
+[Return type and description]
+
+**Example:**
+\`\`\`[language]
+[Usage example]
+\`\`\`
+
+**Error Responses:**
+- [error code]: [description]
+
+---
+
+## Authentication
+
+[If applicable, describe authentication requirements]
+
+## Rate Limits
+
+[If applicable, describe rate limiting]
+
+## Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| [ver] | [date] | Initial API documentation |
+```
+
+#### 4c. Generate Developer Documentation
+
+If developer documentation is needed:
+
+**AI Task:** Generate developer documentation for the implementation:
+
+1. **Architecture documentation:**
+   - Document new modules/components added
+   - Explain design decisions from spec's Key Decisions
+   - Include sequence diagrams for complex workflows
+
+2. **Integration guide:**
+   - How to use the new functionality
+   - Dependencies and requirements
+   - Configuration options
+
+3. **Code examples:**
+   - Practical usage examples
+   - Common patterns and best practices
+   - Error handling examples
+
+**Output location:** `specs/${SPEC_ID}/developer-docs.md` or `docs/[feature-name].md`
+
+**Developer Documentation Template:**
+
+```markdown
+# Developer Guide: [SPEC_TITLE]
+
+**Spec:** specs/${SPEC_ID}/spec.md
+**Status:** Implemented
+**Date:** [current date]
+
+## Overview
+
+[High-level description of what was implemented and why]
+
+## Architecture
+
+### Components
+
+[Describe the main components added/modified]
+
+\`\`\`
+[Component diagram or file structure]
+\`\`\`
+
+### Data Flow
+
+[Describe how data flows through the system]
+
+## Getting Started
+
+### Prerequisites
+
+- [Prerequisite 1]
+- [Prerequisite 2]
+
+### Installation/Setup
+
+\`\`\`bash
+[Setup commands]
+\`\`\`
+
+### Basic Usage
+
+\`\`\`[language]
+[Basic usage example]
+\`\`\`
+
+## Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| [option] | [type] | [default] | [description] |
+
+## Advanced Usage
+
+### [Use Case 1]
+
+[Description and example]
+
+### [Use Case 2]
+
+[Description and example]
+
+## Troubleshooting
+
+### Common Issues
+
+**Issue:** [Problem description]
+**Solution:** [How to fix]
+
+## Related Documentation
+
+- [Link to spec](specs/${SPEC_ID}/spec.md)
+- [Link to API docs](specs/${SPEC_ID}/api-docs.md)
+- [Other related docs]
+```
+
+#### 4d. Update Project Documentation
+
+**AI Task:** Update project-level documentation if needed:
+
+1. **README.md updates:**
+   - Add new features to feature list
+   - Update installation instructions if changed
+   - Add new usage examples
+
+2. **CHANGELOG.md updates:**
+   - Add entry for the new feature/fix
+   - Follow existing changelog format
+
+3. **Table of Contents updates:**
+   - Update `docs/toc.yml` or equivalent if new docs added
+
+```bash
+# Check if README needs updating
+if [ -f "$README_PATH" ]; then
+    echo "Checking if README.md needs updates..."
+fi
+
+# Check for CHANGELOG
+if [ -f "CHANGELOG.md" ]; then
+    echo "CHANGELOG.md found - consider adding entry for this spec"
+fi
+```
+
+#### 4e. Commit Documentation
+
+After generating documentation:
+
+```bash
+if [ -z "$SKIP_DOCS" ]; then
+    # Check if any documentation was generated
+    DOC_FILES=""
+
+    if [ -f "specs/$SPEC_ID/api-docs.md" ]; then
+        DOC_FILES="$DOC_FILES specs/$SPEC_ID/api-docs.md"
+    fi
+
+    if [ -f "specs/$SPEC_ID/developer-docs.md" ]; then
+        DOC_FILES="$DOC_FILES specs/$SPEC_ID/developer-docs.md"
+    fi
+
+    # Check for any modified docs in the docs directory
+    MODIFIED_DOCS=$(git diff --name-only -- "$DOCS_PATH/" 2>/dev/null || echo "")
+    if [ -n "$MODIFIED_DOCS" ]; then
+        DOC_FILES="$DOC_FILES $MODIFIED_DOCS"
+    fi
+
+    if [ -n "$DOC_FILES" ]; then
+        echo ""
+        echo "### Documentation Generated"
+        echo ""
+        echo "The following documentation files were created/updated:"
+        for doc in $DOC_FILES; do
+            echo "  - $doc"
+        done
+        echo ""
+
+        # Stage and commit documentation
+        git add $DOC_FILES
+        git commit -m "docs($SPEC_ID): Add documentation for $SPEC_TITLE"
+
+        echo "✓ Documentation committed"
+    else
+        echo "ℹ️  No documentation files were generated"
+    fi
+fi
+```
+
+#### 4f. Docs-Only Mode Exit
+
+If `--docs-only` flag is set, exit after documentation generation:
+
+```bash
+if [ -n "$DOCS_ONLY" ]; then
+    echo ""
+    echo "---"
+    echo "## Documentation Generation Complete"
+    echo ""
+    echo "**Spec:** $SPEC_ID"
+    echo "**Mode:** docs-only (PR creation skipped)"
+    echo ""
+
+    if [ -n "$DOC_FILES" ]; then
+        echo "### Generated Documentation"
+        for doc in $DOC_FILES; do
+            echo "  - $doc"
+        done
+        echo ""
+        echo "To create a PR, run: /spectrena.spec.finish"
+    else
+        echo "No documentation was generated."
+    fi
+
+    exit 0
+fi
+```
+
+### 5. Pre-Submit Verification
+
+Check for uncommitted changes (including any documentation changes) and branch status:
 
 ```bash
 echo ""
@@ -220,7 +604,7 @@ echo "Ready to create pull request."
 echo ""
 ```
 
-### 5. Generate PR/MR Content
+### 6. Generate PR/MR Content
 
 Extract spec title and generate PR body:
 
@@ -237,6 +621,24 @@ CHANGED_FILES=$(git diff --name-only "$DEFAULT_BRANCH"...HEAD)
 # Extract requirements from spec
 REQUIREMENTS=$(grep -E "^[-*] " "specs/$SPEC_ID/spec.md" | grep -v "^[-*] \[ \]" | head -n 10)
 
+# Check for generated documentation
+DOC_SECTION=""
+if [ -f "specs/$SPEC_ID/api-docs.md" ] || [ -f "specs/$SPEC_ID/developer-docs.md" ]; then
+    DOC_SECTION="## Documentation
+
+"
+    if [ -f "specs/$SPEC_ID/api-docs.md" ]; then
+        DOC_SECTION="${DOC_SECTION}- API Documentation: \`specs/$SPEC_ID/api-docs.md\`
+"
+    fi
+    if [ -f "specs/$SPEC_ID/developer-docs.md" ]; then
+        DOC_SECTION="${DOC_SECTION}- Developer Guide: \`specs/$SPEC_ID/developer-docs.md\`
+"
+    fi
+    DOC_SECTION="${DOC_SECTION}
+"
+fi
+
 # Create PR body
 PR_BODY="## Summary
 
@@ -252,13 +654,13 @@ $CHANGED_FILES
 
 $REQUIREMENTS
 
-## Spec Reference
+${DOC_SECTION}## Spec Reference
 
 See: \`specs/$SPEC_ID/spec.md\`
 "
 ```
 
-### 6. Create Pull/Merge Request
+### 7. Create Pull/Merge Request
 
 Create PR/MR based on provider:
 
@@ -395,7 +797,7 @@ if [ "$PROVIDER" = "other" ]; then
 fi
 ```
 
-### 7. Update Backlog Status
+### 8. Update Backlog Status
 
 If backlog enabled and spec exists in backlog:
 
@@ -439,6 +841,8 @@ fi
 | Uncommitted changes | "Commit or stash changes before finishing" |
 | gh/glab not installed | "Install `${CLI}` or set git.provider to 'other' in config" |
 | PR/MR already exists | Show existing PR URL |
+| Documentation generation failed | "Documentation generation failed. Use `--skip-docs` to proceed without documentation" |
+| No changes requiring documentation | "No documentation needed for this spec (no public APIs or interfaces detected)" |
 
 ---
 
@@ -446,5 +850,17 @@ fi
 
 - The `--skip-review` flag skips the AI compliance review and only checks task completion
 - The `--draft` flag creates a draft PR/MR that requires manual marking as ready
+- The `--skip-docs` flag skips documentation generation entirely
+- The `--docs-only` flag generates documentation without creating a PR (useful for iterating on docs)
 - If discrepancies are found during review, you can update the spec, update code, or defer
 - Backlog status is automatically updated from 🟨 (in progress) to 🟩 (complete)
+- Documentation is generated based on:
+  - **API Documentation**: When spec has Operations/Interfaces sections or code has new public APIs
+  - **Developer Documentation**: When significant new components or modules are added
+  - Generated docs are committed before PR creation and included in PR description
+- Configure documentation paths in `.spectrena/config.yml`:
+  ```yaml
+  documentation:
+    path: "docs"           # Project documentation directory
+    api_path: "docs/api"   # API documentation directory
+  ```
